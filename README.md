@@ -10,11 +10,11 @@
 | Участник | Ветка | Роль |
 |---|---|---|
 | @essentomori | `Kovalev` | Team Lead |
-| @t9tu0 | `Smirnov` | Разработка (`polling.cpp`), (`main.cpp`, `agent.h`) |
+| @t9tu0 | `Smirnov` | Разработка (`polling.cpp`) |
 | @miroslav_pug | `Pugovkin` | Разработка (`result_sender.cpp`) |
 | @KrlKot | — | Проектировщик |
-| @XXI_Primarch | `Naumov` | Техписатель (`README.md`) |
-| @ItQ0n | `Gomonov` | Тестировщик |
+| @XXI_Primarch | `Naumov` | Техписатель + Тестировщик (`README.md`) |
+| @ItQ0n | `Gomonov` | Разработка (`main.cpp`, `agent.h`) |
 ---
 
 ## Архитектура
