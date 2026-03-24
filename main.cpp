@@ -1,6 +1,8 @@
+// main.cpp - @essentomori
+// регистрация агента, утилиты (Logger, Http, Json), точка входа
+
 #include "agent.h"
 #include <iostream>
-#include <fstream>
 #include <curl/curl.h>
 
 AgentState g_state;
@@ -15,14 +17,14 @@ namespace Logger {
         switch (level) {
             case Level::INFO: tag = "[INFO] "; break;
             case Level::WARN: tag = "[WARN] "; break;
-            case Level::ERR: tag = "[ERR]  "; break;
+            case Level::ERR:  tag = "[ERR]  "; break;
             case Level::CRIT: tag = "[CRIT] "; break;
         }
         std::cout << buf << " " << tag << msg << "\n" << std::flush;
     }
     void info(const std::string& m) { log(Level::INFO, m); }
     void warn(const std::string& m) { log(Level::WARN, m); }
-    void err(const std::string& m) { log(Level::ERR, m); }
+    void err (const std::string& m) { log(Level::ERR,  m); }
     void crit(const std::string& m) { log(Level::CRIT, m); }
 }
 
@@ -41,14 +43,14 @@ namespace Http {
         headers = curl_slist_append(headers, "Content-Type: application/json");
         headers = curl_slist_append(headers, "Accept: application/json");
 
-        curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
-        curl_easy_setopt(curl, CURLOPT_POST, 1L);
-        curl_easy_setopt(curl, CURLOPT_POSTFIELDS, body_json.c_str());
-        curl_easy_setopt(curl, CURLOPT_POSTFIELDSIZE, (long)body_json.size());
-        curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
-        curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, write_cb);
-        curl_easy_setopt(curl, CURLOPT_WRITEDATA, &resp.body);
-        curl_easy_setopt(curl, CURLOPT_TIMEOUT, 15L);
+        curl_easy_setopt(curl, CURLOPT_URL,            url.c_str());
+        curl_easy_setopt(curl, CURLOPT_POST,           1L);
+        curl_easy_setopt(curl, CURLOPT_POSTFIELDS,     body_json.c_str());
+        curl_easy_setopt(curl, CURLOPT_POSTFIELDSIZE,  (long)body_json.size());
+        curl_easy_setopt(curl, CURLOPT_HTTPHEADER,     headers);
+        curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION,  write_cb);
+        curl_easy_setopt(curl, CURLOPT_WRITEDATA,      &resp.body);
+        curl_easy_setopt(curl, CURLOPT_TIMEOUT,        15L);
         curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, 10L);
         curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0L);
         curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 0L);
@@ -94,7 +96,7 @@ namespace Json {
         }
     }
 
-    std::string build(std::initializer_list<std::pair<std::string, std::string>> pairs) {
+    std::string build(std::initializer_list<std::pair<std::string,std::string>> pairs) {
         std::ostringstream ss;
         ss << "{";
         bool first = true;
@@ -108,33 +110,14 @@ namespace Json {
     }
 }
 
-static void load_config() {
-    std::ifstream file("config.json");
-    if (!file.is_open()) {
-        Logger::info("config.json не найден, используем значения по умолчанию");
-        return;
-    }
-
-    std::string content((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
-    file.close();
-
-    auto interval = Json::get(content, "poll_interval_sec");
-    if (interval.has_value()) {
-        try {
-            int val = std::stoi(*interval);
-            if (val > 0) {
-                Config::POLL_INTERVAL_SEC = val;
-                Logger::info("Загружен интервал из config.json: " + std::to_string(val) + " сек");
-            }
-        } catch (...) {}
-    }
-}
-
 bool register_agent() {
     Logger::info("Регистрация агента UID=" + Config::AGENT_UID + " ...");
 
-    std::string url = Config::BASE_URL + "/wa_reg/";
-    std::string body = Json::build({{"UID", Config::AGENT_UID}, {"descr", Config::AGENT_DESC}});
+    std::string url  = Config::BASE_URL + "/wa_reg/";
+    std::string body = Json::build({
+        {"UID",   Config::AGENT_UID},
+        {"descr", Config::AGENT_DESC}
+    });
 
     try {
         auto resp = Http::post(url, body);
@@ -164,22 +147,35 @@ bool register_agent() {
                 Logger::info("Используем hardcoded access_code=" + g_state.access_code);
                 return true;
             }
-            Logger::err("HARDCODED_ACCESS_CODE не задан");
+            Logger::err("HARDCODED_ACCESS_CODE не задан в agent.h");
             return false;
         } else {
             Logger::err("Неожиданный code_responce=" + *code_opt);
             return false;
         }
     } catch (const std::exception& e) {
-        Logger::err("Ошибка при регистрации: " + std::string(e.what()));
+        Logger::err(std::string("Ошибка при регистрации: ") + e.what());
         return false;
     }
 }
 
-int main() {
+int main(int argc, char* argv[]) {
     Logger::info("=== WebAgent запускается ===");
 
-    load_config();
+    // можно передать интервал опроса как аргумент: ./web_agent 10
+    if (argc > 1) {
+        try {
+            int interval = std::stoi(argv[1]);
+            if (interval > 0) {
+                Config::POLL_INTERVAL_SEC = interval;
+                Logger::info("Интервал опроса задан вручную: "
+                             + std::to_string(interval) + " сек.");
+            }
+        } catch (...) {
+            Logger::warn("Неверный аргумент '" + std::string(argv[1])
+                         + "', используем интервал по умолчанию.");
+        }
+    }
 
     curl_global_init(CURL_GLOBAL_DEFAULT);
 
