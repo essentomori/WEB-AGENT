@@ -30,9 +30,9 @@ namespace Config {
     const std::string AGENT_DESC = "web-agent";
 
     // Если агент уже зарегистрирован — вставь access_code сюда:
-    const std::string HARDCODED_ACCESS_CODE = "";
+    const std::string HARDCODED_ACCESS_CODE = "e87ccd-3146-0dcc-2aeb-796c4724";
 
-    const int POLL_INTERVAL_SEC = 5;
+    const int POLL_INTERVAL_SEC = 20;
     const int MAX_REG_RETRIES   = 3;
 }
 
