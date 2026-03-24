@@ -15,7 +15,7 @@ namespace Config {
     const std::string AGENT_UID = "007";
     const std::string AGENT_DESC = "web-agent";
     const std::string HARDCODED_ACCESS_CODE = "e87ccd-3146-0dcc-2aeb-796c4724";
-    int POLL_INTERVAL_SEC = 5;
+    inline int POLL_INTERVAL_SEC = 5;
     const int MAX_REG_RETRIES = 3;
 }
 

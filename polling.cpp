@@ -1,5 +1,6 @@
 #include "agent.h"
 #include <thread>
+#include <fstream>
 
 static int request_task(Task& out_task) {
     std::string url = Config::BASE_URL + "/wa_task/";
@@ -50,6 +51,36 @@ static int request_task(Task& out_task) {
 
 static void handle_conf(const Task& task) {
     Logger::info("[CONF] Выполнение, session=" + task.session_id);
+
+    if (!task.options.empty()) {
+        size_t pos = task.options.find("POLL_INTERVAL_SEC");
+        if (pos != std::string::npos) {
+            size_t eq = task.options.find("=", pos);
+            if (eq != std::string::npos) {
+                try {
+                    int new_interval = std::stoi(task.options.substr(eq + 1));
+                    if (new_interval > 0) {
+                        Config::POLL_INTERVAL_SEC = new_interval;
+                        Logger::info("[CONF] Интервал опроса изменён на " + std::to_string(new_interval) + " сек");
+
+                        std::ofstream file("config.json");
+                        if (file.is_open()) {
+                            file << "{\n";
+                            file << "    \"uid\": \"" << Config::AGENT_UID << "\",\n";
+                            file << "    \"description\": \"" << Config::AGENT_DESC << "\",\n";
+                            file << "    \"poll_interval_sec\": " << new_interval << "\n";
+                            file << "}\n";
+                            file.close();
+                            Logger::info("[CONF] Конфигурация сохранена в config.json");
+                        }
+                    }
+                } catch (...) {
+                    Logger::warn("[CONF] Не удалось распарсить интервал");
+                }
+            }
+        }
+    }
+
     send_result(task.session_id, 0, "конфигурация применена", {});
 }
 
