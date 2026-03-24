@@ -1,6 +1,6 @@
 # WebAgent-LAB
 
-Учебный проект — агент удалённого управления (Remote Management Agent).  
+Учебный проект — агент удалённого управления (Remote Management Agent).
 Агент регистрируется на сервере, получает задания и отправляет результат обратно с файлами.
 
 ---
@@ -9,12 +9,12 @@
 
 | Участник | Ветка | Роль |
 |---|---|---|
-| @essentomori | `Kovalev` | Team Lead + разработка (`main.cpp`, `agent.h`) |
-| @t9tu0 | `Smirnov` | Разработка (`polling.cpp`) |
+| @essentomori | `Kovalev` | Team Lead |
+| @t9tu0 | `Smirnov` | Разработка (`polling.cpp`), (`main.cpp`, `agent.h`) |
 | @miroslav_pug | `Pugovkin` | Разработка (`result_sender.cpp`) |
 | @KrlKot | — | Проектировщик |
-| @XXI_Primarch | `XXI_Primarch` | Техписатель + тестировщик |
-
+| @XXI_Primarch | `Naumov` | Техписатель (`README.md`) |
+| @ItQ0n | `Gomonov` | Тестировщик |
 ---
 
 ## Архитектура
@@ -173,5 +173,6 @@ main           ← стабильный код, только через PR
         ├── Kovalev      (@essentomori)
         ├── Smirnov      (@t9tu0)
         ├── Pugovkin     (@miroslav_pug)
-        └── XXI_Primarch (@XXI_Primarch)
+        └── Naumov       (@XXI_Primarch)
+        └── Gomonov      (@ItQ0n)
 ```
