@@ -1,5 +1,6 @@
 #include "agent.h"
 #include <iostream>
+#include <fstream>
 #include <curl/curl.h>
 
 AgentState g_state;
@@ -107,6 +108,28 @@ namespace Json {
     }
 }
 
+static void load_config() {
+    std::ifstream file("config.json");
+    if (!file.is_open()) {
+        Logger::info("config.json не найден, используем значения по умолчанию");
+        return;
+    }
+
+    std::string content((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
+    file.close();
+
+    auto interval = Json::get(content, "poll_interval_sec");
+    if (interval.has_value()) {
+        try {
+            int val = std::stoi(*interval);
+            if (val > 0) {
+                Config::POLL_INTERVAL_SEC = val;
+                Logger::info("Загружен интервал из config.json: " + std::to_string(val) + " сек");
+            }
+        } catch (...) {}
+    }
+}
+
 bool register_agent() {
     Logger::info("Регистрация агента UID=" + Config::AGENT_UID + " ...");
 
@@ -155,6 +178,9 @@ bool register_agent() {
 
 int main() {
     Logger::info("=== WebAgent запускается ===");
+
+    load_config();
+
     curl_global_init(CURL_GLOBAL_DEFAULT);
 
     if (!Config::HARDCODED_ACCESS_CODE.empty()) {
