@@ -1,0 +1,12 @@
+cat > config.json << 'EOF'
+{
+    "uid": "007",
+    "description": "web-agent",
+    "server_url": "https://xdev.arkcom.ru:9999/app/webagent1/api",
+    "poll_interval_sec": 5,
+    "access_code": "e87ccd-3146-0dcc-2aeb-796c4724",
+    "task_directory": "./tasks",
+    "result_directory": "./results",
+    "log_file": "./agent.log"
+}
+EOF

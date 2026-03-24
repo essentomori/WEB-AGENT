@@ -12,29 +12,18 @@ static size_t write_cb(char* ptr, size_t size, size_t nmemb, void* ud) {
     return size * nmemb;
 }
 
-static std::string build_result_json(
-    const std::string& session_id,
-    const std::string& message,
-    int file_count)
-{
+static std::string build_result_json(const std::string& session_id, const std::string& message, int file_count) {
     return Json::build({
-        {"UID",         Config::AGENT_UID},
+        {"UID", Config::AGENT_UID},
         {"access_code", g_state.access_code},
-        {"message",     message},
-        {"files",       std::to_string(file_count)},
-        {"session_id",  session_id}
+        {"message", message},
+        {"files", std::to_string(file_count)},
+        {"session_id", session_id}
     });
 }
 
-bool send_result(
-    const std::string& session_id,
-    int result_code,
-    const std::string& message,
-    const std::vector<std::string>& file_paths)
-{
-    Logger::info("Отправка результата: session_id=" + session_id +
-                 " code=" + std::to_string(result_code) +
-                 " files=" + std::to_string(file_paths.size()));
+bool send_result(const std::string& session_id, int result_code, const std::string& message, const std::vector<std::string>& file_paths) {
+    Logger::info("Отправка результата: session=" + session_id + " code=" + std::to_string(result_code) + " files=" + std::to_string(file_paths.size()));
 
     std::string url = Config::BASE_URL + "/wa_result/";
     std::string result_json = build_result_json(session_id, message, (int)file_paths.size());
@@ -71,11 +60,11 @@ bool send_result(
 
     std::string response_body;
 
-    curl_easy_setopt(curl, CURLOPT_URL,            url.c_str());
-    curl_easy_setopt(curl, CURLOPT_MIMEPOST,       mime);
-    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION,  write_cb);
-    curl_easy_setopt(curl, CURLOPT_WRITEDATA,      &response_body);
-    curl_easy_setopt(curl, CURLOPT_TIMEOUT,        30L);
+    curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
+    curl_easy_setopt(curl, CURLOPT_MIMEPOST, mime);
+    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, write_cb);
+    curl_easy_setopt(curl, CURLOPT_WRITEDATA, &response_body);
+    curl_easy_setopt(curl, CURLOPT_TIMEOUT, 30L);
     curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, 10L);
     curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0L);
     curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 0L);
@@ -110,7 +99,7 @@ bool send_result(
         Logger::info("Результат принят");
         return true;
     } else {
-        Logger::err("Сервер вернул ошибку: " + response_body);
+        Logger::err("Ошибка сервера: " + response_body);
         return false;
     }
 }

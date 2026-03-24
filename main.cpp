@@ -1,34 +1,9 @@
-/**
- * ╔══════════════════════════════════════════════════════════════╗
- * ║  РАЗРАБОТЧИК №1: @essentomori  (Team Lead)                  ║
- * ║  ФАЙЛ: main.cpp                                             ║
- * ║                                                             ║
- * ║  Отвечает за:                                               ║
- * ║    • Общие утилиты: Logger, Http (libcurl), Json            ║
- * ║    • Регистрацию агента  POST /api/wa_reg/                  ║
- * ║    • Инициализацию и точку входа main()                     ║
- * ╚══════════════════════════════════════════════════════════════╝
- *
- *  Сборка всего проекта:
- *      g++ -std=c++17 -O2 -o web_agent \
- *          main.cpp polling.cpp result_sender.cpp -lcurl
- *
- *  Установка зависимости (один раз):
- *      sudo apt install libcurl4-openssl-dev
- */
-
 #include "agent.h"
 #include <iostream>
 #include <curl/curl.h>
 
-// ============================================================
-//  Глобальное состояние агента
-// ============================================================
 AgentState g_state;
 
-// ============================================================
-//  Logger — реализация
-// ============================================================
 namespace Logger {
     void log(Level level, const std::string& msg) {
         auto now = std::chrono::system_clock::now();
@@ -39,20 +14,17 @@ namespace Logger {
         switch (level) {
             case Level::INFO: tag = "[INFO] "; break;
             case Level::WARN: tag = "[WARN] "; break;
-            case Level::ERR:  tag = "[ERR]  "; break;
+            case Level::ERR: tag = "[ERR]  "; break;
             case Level::CRIT: tag = "[CRIT] "; break;
         }
         std::cout << buf << " " << tag << msg << "\n" << std::flush;
     }
     void info(const std::string& m) { log(Level::INFO, m); }
     void warn(const std::string& m) { log(Level::WARN, m); }
-    void err (const std::string& m) { log(Level::ERR,  m); }
+    void err(const std::string& m) { log(Level::ERR, m); }
     void crit(const std::string& m) { log(Level::CRIT, m); }
 }
 
-// ============================================================
-//  Http — POST через libcurl (поддерживает HTTPS)
-// ============================================================
 namespace Http {
     static size_t write_cb(char* ptr, size_t size, size_t nmemb, void* ud) {
         static_cast<std::string*>(ud)->append(ptr, size * nmemb);
@@ -68,16 +40,16 @@ namespace Http {
         headers = curl_slist_append(headers, "Content-Type: application/json");
         headers = curl_slist_append(headers, "Accept: application/json");
 
-        curl_easy_setopt(curl, CURLOPT_URL,            url.c_str());
-        curl_easy_setopt(curl, CURLOPT_POST,           1L);
-        curl_easy_setopt(curl, CURLOPT_POSTFIELDS,     body_json.c_str());
-        curl_easy_setopt(curl, CURLOPT_POSTFIELDSIZE,  (long)body_json.size());
-        curl_easy_setopt(curl, CURLOPT_HTTPHEADER,     headers);
-        curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION,  write_cb);
-        curl_easy_setopt(curl, CURLOPT_WRITEDATA,      &resp.body);
-        curl_easy_setopt(curl, CURLOPT_TIMEOUT,        15L);
+        curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
+        curl_easy_setopt(curl, CURLOPT_POST, 1L);
+        curl_easy_setopt(curl, CURLOPT_POSTFIELDS, body_json.c_str());
+        curl_easy_setopt(curl, CURLOPT_POSTFIELDSIZE, (long)body_json.size());
+        curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
+        curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, write_cb);
+        curl_easy_setopt(curl, CURLOPT_WRITEDATA, &resp.body);
+        curl_easy_setopt(curl, CURLOPT_TIMEOUT, 15L);
         curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, 10L);
-        curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0L);  // для самоподписанного серт.
+        curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0L);
         curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 0L);
 
         CURLcode res = curl_easy_perform(curl);
@@ -98,9 +70,6 @@ namespace Http {
     }
 }
 
-// ============================================================
-//  Json — минимальный парсер/сборщик
-// ============================================================
 namespace Json {
     std::optional<std::string> get(const std::string& json, const std::string& key) {
         std::string sk = "\"" + key + "\"";
@@ -124,7 +93,7 @@ namespace Json {
         }
     }
 
-    std::string build(std::initializer_list<std::pair<std::string,std::string>> pairs) {
+    std::string build(std::initializer_list<std::pair<std::string, std::string>> pairs) {
         std::ostringstream ss;
         ss << "{";
         bool first = true;
@@ -138,27 +107,11 @@ namespace Json {
     }
 }
 
-// ============================================================
-//  Регистрация агента  POST /api/wa_reg/
-//
-//  Запрос:
-//    { "UID":"007", "descr":"web-agent" }
-//
-//  Ответ успех (code_responce=0):
-//    { "code_responce":"0", "msg":"Регистрация прошла успешно",
-//      "access_code":"594807-1ddb-36af-9616-d8ed2b9d" }
-//
-//  Ответ агент уже есть (code_responce=-3):
-//    { "code_responce":"-3", "msg":"Такой агент уже зарегисирирован" }
-// ============================================================
 bool register_agent() {
     Logger::info("Регистрация агента UID=" + Config::AGENT_UID + " ...");
 
-    std::string url  = Config::BASE_URL + "/wa_reg/";
-    std::string body = Json::build({
-        {"UID",   Config::AGENT_UID},
-        {"descr", Config::AGENT_DESC}
-    });
+    std::string url = Config::BASE_URL + "/wa_reg/";
+    std::string body = Json::build({{"UID", Config::AGENT_UID}, {"descr", Config::AGENT_DESC}});
 
     try {
         auto resp = Http::post(url, body);
@@ -178,41 +131,32 @@ bool register_agent() {
         int code = std::stoi(*code_opt);
 
         if (code == 0) {
-            // Успешная регистрация — сохраняем access_code
             g_state.access_code = Json::get(resp.body, "access_code").value_or("");
             Logger::info("Регистрация успешна. access_code=" + g_state.access_code);
             return true;
-
         } else if (code == -3) {
-            // Агент уже зарегистрирован — используем хардкод
             Logger::warn("Агент уже зарегистрирован на сервере.");
             if (!Config::HARDCODED_ACCESS_CODE.empty()) {
                 g_state.access_code = Config::HARDCODED_ACCESS_CODE;
                 Logger::info("Используем hardcoded access_code=" + g_state.access_code);
                 return true;
             }
-            Logger::err("HARDCODED_ACCESS_CODE не задан. Установи его в agent.h");
+            Logger::err("HARDCODED_ACCESS_CODE не задан");
             return false;
-
         } else {
             Logger::err("Неожиданный code_responce=" + *code_opt);
             return false;
         }
-
     } catch (const std::exception& e) {
-        Logger::err(std::string("Ошибка при регистрации: ") + e.what());
+        Logger::err("Ошибка при регистрации: " + std::string(e.what()));
         return false;
     }
 }
 
-// ============================================================
-//  Точка входа
-// ============================================================
 int main() {
     Logger::info("=== WebAgent запускается ===");
     curl_global_init(CURL_GLOBAL_DEFAULT);
 
-    // Если access_code задан вручную — пропускаем регистрацию
     if (!Config::HARDCODED_ACCESS_CODE.empty()) {
         g_state.access_code = Config::HARDCODED_ACCESS_CODE;
         Logger::info("Используем hardcoded access_code=" + g_state.access_code);
@@ -224,7 +168,6 @@ int main() {
         }
     }
 
-    // Передаём управление циклу опроса (@t9tu0 — polling.cpp)
     polling_loop();
 
     curl_global_cleanup();
