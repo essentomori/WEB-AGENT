@@ -3,6 +3,7 @@
 
 #include "agent.h"
 #include <iostream>
+#include <fstream>          // добавлено для чтения config.json
 #include <curl/curl.h>
 
 AgentState g_state;
@@ -161,6 +162,28 @@ bool register_agent() {
 
 int main(int argc, char* argv[]) {
     Logger::info("=== WebAgent запускается ===");
+
+    // --- НОВОЕ: читаем сохранённый интервал из config.json ---
+    {
+        std::ifstream cfg("config.json");
+        if (cfg.is_open()) {
+            std::string content((std::istreambuf_iterator<char>(cfg)),
+                                std::istreambuf_iterator<char>());
+            cfg.close();
+            auto interval_str = Json::get(content, "poll_interval_sec");
+            if (interval_str) {
+                try {
+                    int interval = std::stoi(*interval_str);
+                    if (interval > 0) {
+                        Config::POLL_INTERVAL_SEC = interval;
+                        Logger::info("Загружен интервал опроса из config.json: " +
+                                     std::to_string(interval) + " сек");
+                    }
+                } catch (...) {}
+            }
+        }
+    }
+    // --- конец новой секции ---
 
     // можно передать интервал опроса как аргумент: ./web_agent 10
     if (argc > 1) {

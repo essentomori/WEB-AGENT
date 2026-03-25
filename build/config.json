@@ -1,0 +1,5 @@
+{
+    "uid": "007",
+    "description": "web-agent",
+    "poll_interval_sec": 5
+}

