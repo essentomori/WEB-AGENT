@@ -4,6 +4,7 @@
 #include "agent.h"
 #include <iostream>
 #include <thread>
+#include <fstream>
 
 // POST /api/wa_task/
 // возвращает: 1 = задание есть, 0 = ждём, -2 = неверный код, -99 = ошибка
@@ -37,12 +38,13 @@ static int request_task(Task& out_task) {
             out_task.options    = Json::get(resp.body, "options")   .value_or("");
             out_task.status     = Json::get(resp.body, "status")    .value_or("");
             Logger::info("Получено задание: task_code=" + out_task.task_code
-                         + " session_id=" + out_task.session_id
-                         + " status=" + out_task.status);
+                         + " session_id=" + out_task.session_id);
+            if (!out_task.options.empty()) {
+                Logger::info("Options raw: " + out_task.options);
+            }
             return 1;
         } else if (code == 0) {
-            Logger::info("Заданий нет (WAIT). Следующий опрос через "
-                         + std::to_string(Config::POLL_INTERVAL_SEC) + " сек.");
+            Logger::info("Заданий нет");
             return 0;
         } else if (code == -2) {
             Logger::err("Неверный код доступа. Запускаем повторную регистрацию.");
@@ -52,59 +54,136 @@ static int request_task(Task& out_task) {
             return -99;
         }
     } catch (const std::exception& e) {
-        Logger::err(std::string("Сетевая ошибка при запросе задания: ") + e.what());
+        Logger::err(std::string("Сетевая ошибка: ") + e.what());
         return -99;
     }
 }
 
-// если сервер передал интервал в поле options - применяем его
-// сервер может прислать: {"interval":"10"}
-static void apply_interval_from_options(const std::string& options) {
-    if (options.empty()) return;
+// парсит options и извлекает интервал
+static int parse_interval_from_options(const std::string& options) {
+    if (options.empty()) return -1;
 
+    // пробуем парсить как JSON: {"interval":"15"}
     auto interval_str = Json::get(options, "interval");
-    if (!interval_str) return;
+    if (interval_str) {
+        try {
+            return std::stoi(*interval_str);
+        } catch (...) {}
+    }
 
-    try {
-        int new_interval = std::stoi(*interval_str);
-        if (new_interval > 0 && new_interval != Config::POLL_INTERVAL_SEC) {
-            Config::POLL_INTERVAL_SEC = new_interval;
-            Logger::info("Сервер изменил интервал опроса: "
-                         + std::to_string(new_interval) + " сек.");
+    // пробуем парсить как простой текст: {POLL_INTERVAL_SEC = 15}
+    size_t pos = options.find("POLL_INTERVAL_SEC");
+    if (pos != std::string::npos) {
+        size_t eq = options.find("=", pos);
+        if (eq != std::string::npos) {
+            size_t start = eq + 1;
+            while (start < options.size() && options[start] == ' ') start++;
+            std::string num;
+            while (start < options.size() && (isdigit(options[start]) || options[start] == '-')) {
+                num += options[start];
+                start++;
+            }
+            try {
+                return std::stoi(num);
+            } catch (...) {}
         }
-    } catch (...) {
-        Logger::warn("Не удалось прочитать интервал из options: " + options);
+    }
+
+    return -1;
+}
+
+// если сервер передал интервал в поле options - применяем его
+static void apply_interval_from_options(const std::string& options) {
+    int new_interval = parse_interval_from_options(options);
+    if (new_interval > 0 && new_interval != Config::POLL_INTERVAL_SEC) {
+        Config::POLL_INTERVAL_SEC = new_interval;
+        Logger::info("Интервал опроса изменён на " + std::to_string(new_interval) + " сек");
+
+        // сохраняем в config.json
+        std::ofstream file("config.json");
+        if (file.is_open()) {
+            file << "{\n";
+            file << "    \"uid\": \"" << Config::AGENT_UID << "\",\n";
+            file << "    \"description\": \"" << Config::AGENT_DESC << "\",\n";
+            file << "    \"poll_interval_sec\": " << new_interval << "\n";
+            file << "}\n";
+            file.close();
+            Logger::info("Конфигурация сохранена");
+        }
     }
 }
 
 // обработка задания типа CONF
 static void handle_conf(const Task& task) {
-    Logger::info("[CONF] Начинаю обработку, session_id=" + task.session_id);
+    Logger::info("[CONF] Выполнение, session=" + task.session_id);
+    send_result(task.session_id, 0, "конфигурация применена", {});
+}
 
-    // тут должна быть бизнес-логика задания
-    // например: прочитать конфиг, применить настройки, собрать файлы
+// обработка задания типа FILE
+static void handle_file(const Task& task) {
+    Logger::info("[FILE] Выполнение, session=" + task.session_id);
 
-    Logger::info("[CONF] Задание выполнено. Отправляем результат...");
+    std::vector<std::string> result_files;
 
-    bool ok = send_result(task.session_id, 0, "конфигурация применена", {});
-    if (ok) {
-        Logger::info("[CONF] Результат принят сервером.");
-    } else {
-        Logger::err("[CONF] Не удалось отправить результат.");
+    // ищем путь к файлу в options
+    size_t pos = task.options.find("path");
+    if (pos != std::string::npos) {
+        size_t colon = task.options.find(":", pos);
+        if (colon != std::string::npos) {
+            size_t start = colon + 1;
+            while (start < task.options.size() && (task.options[start] == ' ' || task.options[start] == '"')) start++;
+            size_t end = start;
+            while (end < task.options.size() && task.options[end] != '"' && task.options[end] != ',' && task.options[end] != '}') end++;
+            std::string file_path = task.options.substr(start, end - start);
+
+            Logger::info("[FILE] Путь: " + file_path);
+            std::ifstream test(file_path);
+            if (test.good()) {
+                result_files.push_back(file_path);
+                Logger::info("[FILE] Файл найден");
+            } else {
+                Logger::warn("[FILE] Файл не найден: " + file_path);
+            }
+        }
     }
+
+    send_result(task.session_id, 0, "файл обработан", result_files);
+}
+
+// обработка задания типа TIMEOUT
+static void handle_timeout(const Task& task) {
+    Logger::info("[TIMEOUT] Выполнение, session=" + task.session_id);
+
+    // ищем задержку
+    size_t pos = task.options.find("delay");
+    if (pos != std::string::npos) {
+        size_t colon = task.options.find(":", pos);
+        if (colon != std::string::npos) {
+            size_t start = colon + 1;
+            while (start < task.options.size() && (task.options[start] == ' ' || task.options[start] == '"')) start++;
+            size_t end = start;
+            while (end < task.options.size() && isdigit(task.options[end])) end++;
+            try {
+                int delay = std::stoi(task.options.substr(start, end - start));
+                Logger::info("[TIMEOUT] Ожидание " + std::to_string(delay) + " сек");
+                std::this_thread::sleep_for(std::chrono::seconds(delay));
+            } catch (...) {}
+        }
+    }
+
+    send_result(task.session_id, 0, "таймаут выполнен", {});
 }
 
 // диспетчер - по task_code выбираем обработчик
 using TaskHandler = std::function<void(const Task&)>;
 static const std::map<std::string, TaskHandler> HANDLERS = {
     { "CONF", handle_conf },
-    // { "SCAN",   handle_scan   },
-    // { "UPDATE", handle_update },
+    { "FILE", handle_file },
+    { "TIMEOUT", handle_timeout },
 };
 
 static void execute_task(const Task& task) {
-    Logger::info("Выполняю task_code=" + task.task_code
-                 + " session_id=" + task.session_id);
+    Logger::info("Выполняю task_code=" + task.task_code + " session=" + task.session_id);
 
     // проверяем не хочет ли сервер изменить интервал опроса
     apply_interval_from_options(task.options);
@@ -113,7 +192,7 @@ static void execute_task(const Task& task) {
     if (it != HANDLERS.end()) {
         it->second(task);
     } else {
-        Logger::warn("Неизвестный task_code='" + task.task_code + "'. Пропускаю.");
+        Logger::warn("Неизвестный task_code='" + task.task_code + "'");
         send_result(task.session_id, -1, "неизвестный task_code: " + task.task_code, {});
     }
 }
@@ -123,28 +202,21 @@ static bool try_reregister() {
     g_state.reset();
 
     for (int attempt = 1; attempt <= Config::MAX_REG_RETRIES; ++attempt) {
-        Logger::info("Повторная регистрация: попытка "
-                     + std::to_string(attempt) + "/"
-                     + std::to_string(Config::MAX_REG_RETRIES));
-
+        Logger::info("Повторная регистрация: попытка " + std::to_string(attempt));
         if (register_agent()) {
             Logger::info("Повторная регистрация успешна.");
             return true;
         }
-
-        int backoff = attempt * 5;
-        Logger::info("Ждём " + std::to_string(backoff) + " сек...");
-        std::this_thread::sleep_for(std::chrono::seconds(backoff));
+        std::this_thread::sleep_for(std::chrono::seconds(attempt * 5));
     }
 
-    Logger::crit("Повторная регистрация не удалась после всех попыток.");
+    Logger::crit("Повторная регистрация не удалась");
     return false;
 }
 
 // главный цикл - вызывается из main()
 void polling_loop() {
-    Logger::info("Цикл опроса запущен. Интервал: "
-                 + std::to_string(Config::POLL_INTERVAL_SEC) + " сек.");
+    Logger::info("Цикл опроса запущен, интервал " + std::to_string(Config::POLL_INTERVAL_SEC) + " сек");
 
     while (true) {
         Task task;
@@ -154,7 +226,7 @@ void polling_loop() {
             execute_task(task);
         } else if (result == -2) {
             if (!try_reregister()) {
-                Logger::crit("Не удалось восстановить доступ. Завершение.");
+                Logger::crit("Не удалось восстановить доступ");
                 return;
             }
             continue;

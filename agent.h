@@ -17,7 +17,7 @@ namespace Config {
     const std::string AGENT_DESC = "web-agent";
 
     // если агент уже зарегистрирован - вставь сюда access_code
-    const std::string HARDCODED_ACCESS_CODE = "";
+    const std::string HARDCODED_ACCESS_CODE = "e87ccd-3146-0dcc-2aeb-796c4724";
 
     // интервал опроса по умолчанию в секундах
     // можно переопределить аргументом: ./web_agent 10
