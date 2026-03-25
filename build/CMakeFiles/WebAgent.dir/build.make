@@ -53,10 +53,10 @@ RM = /usr/bin/cmake -E rm -f
 EQUALS = =
 
 # The top-level source directory on which CMake was run.
-CMAKE_SOURCE_DIR = /home/miroslav/web_agent/WebAgent-LAB
+CMAKE_SOURCE_DIR = /home/essento/WebAgent-LAB
 
 # The top-level build directory on which CMake was run.
-CMAKE_BINARY_DIR = /home/miroslav/web_agent/WebAgent-LAB/build
+CMAKE_BINARY_DIR = /home/essento/WebAgent-LAB/build
 
 # Include any dependencies generated for this target.
 include CMakeFiles/WebAgent.dir/depend.make
@@ -70,46 +70,46 @@ include CMakeFiles/WebAgent.dir/progress.make
 include CMakeFiles/WebAgent.dir/flags.make
 
 CMakeFiles/WebAgent.dir/src/main.cpp.o: CMakeFiles/WebAgent.dir/flags.make
-CMakeFiles/WebAgent.dir/src/main.cpp.o: /home/miroslav/web_agent/WebAgent-LAB/src/main.cpp
+CMakeFiles/WebAgent.dir/src/main.cpp.o: /home/essento/WebAgent-LAB/src/main.cpp
 CMakeFiles/WebAgent.dir/src/main.cpp.o: CMakeFiles/WebAgent.dir/compiler_depend.ts
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/home/miroslav/web_agent/WebAgent-LAB/build/CMakeFiles --progress-num=$(CMAKE_PROGRESS_1) "Building CXX object CMakeFiles/WebAgent.dir/src/main.cpp.o"
-	/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -MD -MT CMakeFiles/WebAgent.dir/src/main.cpp.o -MF CMakeFiles/WebAgent.dir/src/main.cpp.o.d -o CMakeFiles/WebAgent.dir/src/main.cpp.o -c /home/miroslav/web_agent/WebAgent-LAB/src/main.cpp
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/home/essento/WebAgent-LAB/build/CMakeFiles --progress-num=$(CMAKE_PROGRESS_1) "Building CXX object CMakeFiles/WebAgent.dir/src/main.cpp.o"
+	/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -MD -MT CMakeFiles/WebAgent.dir/src/main.cpp.o -MF CMakeFiles/WebAgent.dir/src/main.cpp.o.d -o CMakeFiles/WebAgent.dir/src/main.cpp.o -c /home/essento/WebAgent-LAB/src/main.cpp
 
 CMakeFiles/WebAgent.dir/src/main.cpp.i: cmake_force
 	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Preprocessing CXX source to CMakeFiles/WebAgent.dir/src/main.cpp.i"
-	/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -E /home/miroslav/web_agent/WebAgent-LAB/src/main.cpp > CMakeFiles/WebAgent.dir/src/main.cpp.i
+	/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -E /home/essento/WebAgent-LAB/src/main.cpp > CMakeFiles/WebAgent.dir/src/main.cpp.i
 
 CMakeFiles/WebAgent.dir/src/main.cpp.s: cmake_force
 	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Compiling CXX source to assembly CMakeFiles/WebAgent.dir/src/main.cpp.s"
-	/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -S /home/miroslav/web_agent/WebAgent-LAB/src/main.cpp -o CMakeFiles/WebAgent.dir/src/main.cpp.s
+	/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -S /home/essento/WebAgent-LAB/src/main.cpp -o CMakeFiles/WebAgent.dir/src/main.cpp.s
 
 CMakeFiles/WebAgent.dir/src/polling.cpp.o: CMakeFiles/WebAgent.dir/flags.make
-CMakeFiles/WebAgent.dir/src/polling.cpp.o: /home/miroslav/web_agent/WebAgent-LAB/src/polling.cpp
+CMakeFiles/WebAgent.dir/src/polling.cpp.o: /home/essento/WebAgent-LAB/src/polling.cpp
 CMakeFiles/WebAgent.dir/src/polling.cpp.o: CMakeFiles/WebAgent.dir/compiler_depend.ts
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/home/miroslav/web_agent/WebAgent-LAB/build/CMakeFiles --progress-num=$(CMAKE_PROGRESS_2) "Building CXX object CMakeFiles/WebAgent.dir/src/polling.cpp.o"
-	/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -MD -MT CMakeFiles/WebAgent.dir/src/polling.cpp.o -MF CMakeFiles/WebAgent.dir/src/polling.cpp.o.d -o CMakeFiles/WebAgent.dir/src/polling.cpp.o -c /home/miroslav/web_agent/WebAgent-LAB/src/polling.cpp
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/home/essento/WebAgent-LAB/build/CMakeFiles --progress-num=$(CMAKE_PROGRESS_2) "Building CXX object CMakeFiles/WebAgent.dir/src/polling.cpp.o"
+	/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -MD -MT CMakeFiles/WebAgent.dir/src/polling.cpp.o -MF CMakeFiles/WebAgent.dir/src/polling.cpp.o.d -o CMakeFiles/WebAgent.dir/src/polling.cpp.o -c /home/essento/WebAgent-LAB/src/polling.cpp
 
 CMakeFiles/WebAgent.dir/src/polling.cpp.i: cmake_force
 	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Preprocessing CXX source to CMakeFiles/WebAgent.dir/src/polling.cpp.i"
-	/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -E /home/miroslav/web_agent/WebAgent-LAB/src/polling.cpp > CMakeFiles/WebAgent.dir/src/polling.cpp.i
+	/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -E /home/essento/WebAgent-LAB/src/polling.cpp > CMakeFiles/WebAgent.dir/src/polling.cpp.i
 
 CMakeFiles/WebAgent.dir/src/polling.cpp.s: cmake_force
 	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Compiling CXX source to assembly CMakeFiles/WebAgent.dir/src/polling.cpp.s"
-	/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -S /home/miroslav/web_agent/WebAgent-LAB/src/polling.cpp -o CMakeFiles/WebAgent.dir/src/polling.cpp.s
+	/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -S /home/essento/WebAgent-LAB/src/polling.cpp -o CMakeFiles/WebAgent.dir/src/polling.cpp.s
 
 CMakeFiles/WebAgent.dir/src/result_sender.cpp.o: CMakeFiles/WebAgent.dir/flags.make
-CMakeFiles/WebAgent.dir/src/result_sender.cpp.o: /home/miroslav/web_agent/WebAgent-LAB/src/result_sender.cpp
+CMakeFiles/WebAgent.dir/src/result_sender.cpp.o: /home/essento/WebAgent-LAB/src/result_sender.cpp
 CMakeFiles/WebAgent.dir/src/result_sender.cpp.o: CMakeFiles/WebAgent.dir/compiler_depend.ts
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/home/miroslav/web_agent/WebAgent-LAB/build/CMakeFiles --progress-num=$(CMAKE_PROGRESS_3) "Building CXX object CMakeFiles/WebAgent.dir/src/result_sender.cpp.o"
-	/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -MD -MT CMakeFiles/WebAgent.dir/src/result_sender.cpp.o -MF CMakeFiles/WebAgent.dir/src/result_sender.cpp.o.d -o CMakeFiles/WebAgent.dir/src/result_sender.cpp.o -c /home/miroslav/web_agent/WebAgent-LAB/src/result_sender.cpp
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --progress-dir=/home/essento/WebAgent-LAB/build/CMakeFiles --progress-num=$(CMAKE_PROGRESS_3) "Building CXX object CMakeFiles/WebAgent.dir/src/result_sender.cpp.o"
+	/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -MD -MT CMakeFiles/WebAgent.dir/src/result_sender.cpp.o -MF CMakeFiles/WebAgent.dir/src/result_sender.cpp.o.d -o CMakeFiles/WebAgent.dir/src/result_sender.cpp.o -c /home/essento/WebAgent-LAB/src/result_sender.cpp
 
 CMakeFiles/WebAgent.dir/src/result_sender.cpp.i: cmake_force
 	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Preprocessing CXX source to CMakeFiles/WebAgent.dir/src/result_sender.cpp.i"
-	/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -E /home/miroslav/web_agent/WebAgent-LAB/src/result_sender.cpp > CMakeFiles/WebAgent.dir/src/result_sender.cpp.i
+	/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -E /home/essento/WebAgent-LAB/src/result_sender.cpp > CMakeFiles/WebAgent.dir/src/result_sender.cpp.i
 
 CMakeFiles/WebAgent.dir/src/result_sender.cpp.s: cmake_force
 	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green "Compiling CXX source to assembly CMakeFiles/WebAgent.dir/src/result_sender.cpp.s"
-	/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -S /home/miroslav/web_agent/WebAgent-LAB/src/result_sender.cpp -o CMakeFiles/WebAgent.dir/src/result_sender.cpp.s
+	/usr/bin/c++ $(CXX_DEFINES) $(CXX_INCLUDES) $(CXX_FLAGS) -S /home/essento/WebAgent-LAB/src/result_sender.cpp -o CMakeFiles/WebAgent.dir/src/result_sender.cpp.s
 
 # Object files for target WebAgent
 WebAgent_OBJECTS = \
@@ -126,7 +126,7 @@ WebAgent: CMakeFiles/WebAgent.dir/src/result_sender.cpp.o
 WebAgent: CMakeFiles/WebAgent.dir/build.make
 WebAgent: /usr/lib/x86_64-linux-gnu/libcurl.so
 WebAgent: CMakeFiles/WebAgent.dir/link.txt
-	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --bold --progress-dir=/home/miroslav/web_agent/WebAgent-LAB/build/CMakeFiles --progress-num=$(CMAKE_PROGRESS_4) "Linking CXX executable WebAgent"
+	@$(CMAKE_COMMAND) -E cmake_echo_color "--switch=$(COLOR)" --green --bold --progress-dir=/home/essento/WebAgent-LAB/build/CMakeFiles --progress-num=$(CMAKE_PROGRESS_4) "Linking CXX executable WebAgent"
 	$(CMAKE_COMMAND) -E cmake_link_script CMakeFiles/WebAgent.dir/link.txt --verbose=$(VERBOSE)
 
 # Rule to build all files generated by this target.
@@ -138,6 +138,6 @@ CMakeFiles/WebAgent.dir/clean:
 .PHONY : CMakeFiles/WebAgent.dir/clean
 
 CMakeFiles/WebAgent.dir/depend:
-	cd /home/miroslav/web_agent/WebAgent-LAB/build && $(CMAKE_COMMAND) -E cmake_depends "Unix Makefiles" /home/miroslav/web_agent/WebAgent-LAB /home/miroslav/web_agent/WebAgent-LAB /home/miroslav/web_agent/WebAgent-LAB/build /home/miroslav/web_agent/WebAgent-LAB/build /home/miroslav/web_agent/WebAgent-LAB/build/CMakeFiles/WebAgent.dir/DependInfo.cmake "--color=$(COLOR)"
+	cd /home/essento/WebAgent-LAB/build && $(CMAKE_COMMAND) -E cmake_depends "Unix Makefiles" /home/essento/WebAgent-LAB /home/essento/WebAgent-LAB /home/essento/WebAgent-LAB/build /home/essento/WebAgent-LAB/build /home/essento/WebAgent-LAB/build/CMakeFiles/WebAgent.dir/DependInfo.cmake "--color=$(COLOR)"
 .PHONY : CMakeFiles/WebAgent.dir/depend
 

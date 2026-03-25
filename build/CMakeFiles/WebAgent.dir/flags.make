@@ -4,7 +4,7 @@
 # compile CXX with /usr/bin/c++
 CXX_DEFINES = 
 
-CXX_INCLUDES = -I/home/miroslav/web_agent/WebAgent-LAB/include
+CXX_INCLUDES = -I/home/essento/WebAgent-LAB/include
 
 CXX_FLAGS = -std=gnu++17
 

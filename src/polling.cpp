@@ -38,6 +38,141 @@ static std::string get_system_info() {
     return result;
 }
 
+// парсит options и извлекает интервал
+static int parse_interval_from_options(const std::string& options) {
+    if (options.empty()) return -1;
+
+    Logger::info("parse_interval_from_options вход: [" + options + "]");
+
+    std::string parsed = options;
+
+    // ШАГ 1: Удаляем экранирование кавычек: \" -> " (первый уровень)
+    std::string unescaped;
+    for (size_t i = 0; i < parsed.length(); ++i) {
+        if (parsed[i] == '\\' && i + 1 < parsed.length() && parsed[i + 1] == '"') {
+            unescaped += '"';
+            i++;
+        } else {
+            unescaped += parsed[i];
+        }
+    }
+    parsed = unescaped;
+
+    Logger::info("После 1-го удаления экранирования: [" + parsed + "]");
+
+    // ШАГ 2: Извлекаем значение ключа "options"
+    auto inner_json = Json::get(parsed, "options");
+    if (!inner_json) {
+        auto interval_str = Json::get(parsed, "interval");
+        if (interval_str) {
+            Logger::info("Найден interval (без options): [" + *interval_str + "]");
+            try {
+                int val = std::stoi(*interval_str);
+                if (val > 0) return val;
+            } catch (...) {}
+        }
+        return -1;
+    }
+
+    Logger::info("Извлечен inner_json: [" + *inner_json + "]");
+
+    // ШАГ 3: Удаляем экранирование внутри inner_json (второй уровень)
+    std::string inner_unescaped;
+    for (size_t i = 0; i < inner_json->length(); ++i) {
+        if ((*inner_json)[i] == '\\' && i + 1 < inner_json->length() && (*inner_json)[i + 1] == '"') {
+            inner_unescaped += '"';
+            i++;
+        } else {
+            inner_unescaped += (*inner_json)[i];
+        }
+    }
+
+    Logger::info("После 2-го удаления экранирования: [" + inner_unescaped + "]");
+
+    // ШАГ 4: Удаляем экранирование в третий раз (если осталось)
+    std::string final_unescaped;
+    for (size_t i = 0; i < inner_unescaped.length(); ++i) {
+        if (inner_unescaped[i] == '\\' && i + 1 < inner_unescaped.length() && inner_unescaped[i + 1] == '"') {
+            final_unescaped += '"';
+            i++;
+        } else {
+            final_unescaped += inner_unescaped[i];
+        }
+    }
+
+    Logger::info("После 3-го удаления экранирования: [" + final_unescaped + "]");
+
+    // ШАГ 5: Извлекаем значение interval
+    auto interval_str = Json::get(final_unescaped, "interval");
+    if (!interval_str) {
+        // Пробуем найти interval в строке без кавычек
+        size_t pos = final_unescaped.find("interval");
+        if (pos != std::string::npos) {
+            size_t colon = final_unescaped.find(":", pos);
+            if (colon != std::string::npos) {
+                size_t start = colon + 1;
+                while (start < final_unescaped.size() && (final_unescaped[start] == ' ' || final_unescaped[start] == '"')) start++;
+                size_t end = start;
+                while (end < final_unescaped.size() && isdigit(final_unescaped[end])) end++;
+                if (end > start) {
+                    std::string val_str = final_unescaped.substr(start, end - start);
+                    try {
+                        int val = std::stoi(val_str);
+                        if (val > 0) {
+                            Logger::info("Найден interval (ручной парсинг): " + std::to_string(val));
+                            return val;
+                        }
+                    } catch (...) {}
+                }
+            }
+        }
+        Logger::warn("Ключ 'interval' не найден");
+        return -1;
+    }
+
+    Logger::info("Найден interval: [" + *interval_str + "]");
+    try {
+        int val = std::stoi(*interval_str);
+        if (val > 0) {
+            Logger::info("interval = " + std::to_string(val));
+            return val;
+        }
+    } catch (const std::exception& e) {
+        Logger::warn("Ошибка преобразования interval: " + std::string(e.what()));
+    }
+
+    return -1;
+}
+
+// если сервер передал интервал в поле options - применяем его
+static void apply_interval_from_options(const std::string& options) {
+    Logger::info("apply_interval_from_options вход: [" + options + "]");
+
+    int new_interval = parse_interval_from_options(options);
+    if (new_interval > 0 && new_interval != Config::POLL_INTERVAL_SEC) {
+        Config::POLL_INTERVAL_SEC = new_interval;
+        Logger::info("Интервал опроса изменён на " + std::to_string(new_interval) + " сек");
+
+        // сохраняем в config.json
+        std::ofstream file("config.json");
+        if (file.is_open()) {
+            file << "{\n";
+            file << "    \"uid\": \"" << Config::AGENT_UID << "\",\n";
+            file << "    \"description\": \"" << Config::AGENT_DESC << "\",\n";
+            file << "    \"poll_interval_sec\": " << new_interval << "\n";
+            file << "}\n";
+            file.close();
+            Logger::info("Конфигурация сохранена в config.json");
+        } else {
+            Logger::err("Не удалось открыть config.json для записи");
+        }
+    } else if (new_interval > 0) {
+        Logger::info("Интервал уже равен " + std::to_string(new_interval) + " сек, изменение не требуется");
+    } else {
+        Logger::info("Интервал не найден или не положительный");
+    }
+}
+
 // POST /api/wa_task/
 // возвращает: 1 = задание есть, 0 = ждём, -2 = неверный код, -99 = ошибка
 static int request_task(Task& out_task) {
@@ -71,9 +206,7 @@ static int request_task(Task& out_task) {
             out_task.status     = Json::get(resp.body, "status")    .value_or("");
             Logger::info("Получено задание: task_code=" + out_task.task_code
                          + " session_id=" + out_task.session_id);
-            if (!out_task.options.empty()) {
-                Logger::info("Options raw: " + out_task.options);
-            }
+            Logger::info("Options raw: [" + out_task.options + "]");
             return 1;
         } else if (code == 0) {
             Logger::info("Заданий нет");
@@ -88,78 +221,6 @@ static int request_task(Task& out_task) {
     } catch (const std::exception& e) {
         Logger::err(std::string("Сетевая ошибка: ") + e.what());
         return -99;
-    }
-}
-
-// парсит options и извлекает интервал
-static int parse_interval_from_options(const std::string& options) {
-    if (options.empty()) return -1;
-
-    // 1. Пробуем парсить как JSON: {"interval":"15"}
-    auto interval_str = Json::get(options, "interval");
-    if (interval_str) {
-        try {
-            return std::stoi(*interval_str);
-        } catch (...) {}
-    }
-
-    // 2. Пробуем парсить как простое число (все символы цифры, возможно минус)
-    std::string trimmed = options;
-    trimmed.erase(0, trimmed.find_first_not_of(" \t\n\r"));
-    trimmed.erase(trimmed.find_last_not_of(" \t\n\r") + 1);
-    bool all_digits = !trimmed.empty();
-    for (char c : trimmed) {
-        if (c != '-' && !isdigit(c)) {
-            all_digits = false;
-            break;
-        }
-    }
-    if (all_digits) {
-        try {
-            int val = std::stoi(trimmed);
-            if (val > 0) return val;
-        } catch (...) {}
-    }
-
-    // 3. Пробуем парсить как простой текст: {POLL_INTERVAL_SEC = 15}
-    size_t pos = options.find("POLL_INTERVAL_SEC");
-    if (pos != std::string::npos) {
-        size_t eq = options.find("=", pos);
-        if (eq != std::string::npos) {
-            size_t start = eq + 1;
-            while (start < options.size() && options[start] == ' ') start++;
-            std::string num;
-            while (start < options.size() && (isdigit(options[start]) || options[start] == '-')) {
-                num += options[start];
-                start++;
-            }
-            try {
-                return std::stoi(num);
-            } catch (...) {}
-        }
-    }
-
-    return -1;
-}
-
-// если сервер передал интервал в поле options - применяем его
-static void apply_interval_from_options(const std::string& options) {
-    int new_interval = parse_interval_from_options(options);
-    if (new_interval > 0 && new_interval != Config::POLL_INTERVAL_SEC) {
-        Config::POLL_INTERVAL_SEC = new_interval;
-        Logger::info("Интервал опроса изменён на " + std::to_string(new_interval) + " сек");
-
-        // сохраняем в config.json
-        std::ofstream file("config.json");
-        if (file.is_open()) {
-            file << "{\n";
-            file << "    \"uid\": \"" << Config::AGENT_UID << "\",\n";
-            file << "    \"description\": \"" << Config::AGENT_DESC << "\",\n";
-            file << "    \"poll_interval_sec\": " << new_interval << "\n";
-            file << "}\n";
-            file.close();
-            Logger::info("Конфигурация сохранена");
-        }
     }
 }
 
@@ -253,7 +314,7 @@ static const std::map<std::string, TaskHandler> HANDLERS = {
     { "CONF", handle_conf },
     { "FILE", handle_file },
     { "TIMEOUT", handle_timeout },
-    { "TASK", handle_task }   // добавлен новый обработчик
+    { "TASK", handle_task }
 };
 
 static void execute_task(const Task& task) {

@@ -8,9 +8,9 @@ set(CMAKE_DEPENDS_LANGUAGES
 
 # The set of dependency files which are needed:
 set(CMAKE_DEPENDS_DEPENDENCY_FILES
-  "/home/miroslav/web_agent/WebAgent-LAB/src/main.cpp" "CMakeFiles/WebAgent.dir/src/main.cpp.o" "gcc" "CMakeFiles/WebAgent.dir/src/main.cpp.o.d"
-  "/home/miroslav/web_agent/WebAgent-LAB/src/polling.cpp" "CMakeFiles/WebAgent.dir/src/polling.cpp.o" "gcc" "CMakeFiles/WebAgent.dir/src/polling.cpp.o.d"
-  "/home/miroslav/web_agent/WebAgent-LAB/src/result_sender.cpp" "CMakeFiles/WebAgent.dir/src/result_sender.cpp.o" "gcc" "CMakeFiles/WebAgent.dir/src/result_sender.cpp.o.d"
+  "/home/essento/WebAgent-LAB/src/main.cpp" "CMakeFiles/WebAgent.dir/src/main.cpp.o" "gcc" "CMakeFiles/WebAgent.dir/src/main.cpp.o.d"
+  "/home/essento/WebAgent-LAB/src/polling.cpp" "CMakeFiles/WebAgent.dir/src/polling.cpp.o" "gcc" "CMakeFiles/WebAgent.dir/src/polling.cpp.o.d"
+  "/home/essento/WebAgent-LAB/src/result_sender.cpp" "CMakeFiles/WebAgent.dir/src/result_sender.cpp.o" "gcc" "CMakeFiles/WebAgent.dir/src/result_sender.cpp.o.d"
   )
 
 # Targets to which this target links which contain Fortran sources.

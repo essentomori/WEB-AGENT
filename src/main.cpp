@@ -3,7 +3,7 @@
 
 #include "agent.h"
 #include <iostream>
-#include <fstream>          // добавлено для чтения config.json
+#include <fstream>
 #include <curl/curl.h>
 
 AgentState g_state;
@@ -76,20 +76,33 @@ namespace Http {
 
 namespace Json {
     std::optional<std::string> get(const std::string& json, const std::string& key) {
-        std::string sk = "\"" + key + "\"";
+        std::string sk = "\"" + key + "\":";
         size_t pos = json.find(sk);
+        if (pos == std::string::npos) {
+            sk = "\"" + key + "\" :";
+            pos = json.find(sk);
+            if (pos == std::string::npos) return std::nullopt;
+        }
+
+        pos = json.find(':', pos);
         if (pos == std::string::npos) return std::nullopt;
-        pos += sk.size();
-        while (pos < json.size() && (json[pos] == ' ' || json[pos] == ':')) ++pos;
+        pos++;
+
+        while (pos < json.size() && (json[pos] == ' ' || json[pos] == '\t')) pos++;
         if (pos >= json.size()) return std::nullopt;
+
         if (json[pos] == '"') {
-            ++pos;
-            size_t end = json.find('"', pos);
-            if (end == std::string::npos) return std::nullopt;
+            pos++;
+            size_t end = pos;
+            while (end < json.size()) {
+                if (json[end] == '"' && (end == 0 || json[end-1] != '\\')) break;
+                end++;
+            }
+            if (end >= json.size()) return std::nullopt;
             return json.substr(pos, end - pos);
         } else {
             size_t end = pos;
-            while (end < json.size() && json[end] != ',' && json[end] != '}') ++end;
+            while (end < json.size() && json[end] != ',' && json[end] != '}') end++;
             std::string val = json.substr(pos, end - pos);
             val.erase(0, val.find_first_not_of(" \t\r\n"));
             val.erase(val.find_last_not_of(" \t\r\n") + 1);
@@ -163,7 +176,6 @@ bool register_agent() {
 int main(int argc, char* argv[]) {
     Logger::info("=== WebAgent запускается ===");
 
-    // --- НОВОЕ: читаем сохранённый интервал из config.json ---
     {
         std::ifstream cfg("config.json");
         if (cfg.is_open()) {
@@ -183,9 +195,7 @@ int main(int argc, char* argv[]) {
             }
         }
     }
-    // --- конец новой секции ---
 
-    // можно передать интервал опроса как аргумент: ./web_agent 10
     if (argc > 1) {
         try {
             int interval = std::stoi(argv[1]);

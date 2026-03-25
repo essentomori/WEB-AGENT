@@ -1,8 +1,7 @@
 CMakeFiles/WebAgent.dir/src/polling.cpp.o: \
- /home/miroslav/web_agent/WebAgent-LAB/src/polling.cpp \
- /usr/include/stdc-predef.h \
- /home/miroslav/web_agent/WebAgent-LAB/include/agent.h \
- /usr/include/c++/13/string /usr/include/c++/13/bits/requires_hosted.h \
+ /home/essento/WebAgent-LAB/src/polling.cpp /usr/include/stdc-predef.h \
+ /home/essento/WebAgent-LAB/include/agent.h /usr/include/c++/13/string \
+ /usr/include/c++/13/bits/requires_hosted.h \
  /usr/include/x86_64-linux-gnu/c++/13/bits/c++config.h \
  /usr/include/x86_64-linux-gnu/c++/13/bits/os_defines.h \
  /usr/include/features.h /usr/include/features-time64.h \
