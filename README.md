@@ -19,19 +19,37 @@
 
 ## Архитектура
 
-```
-Сервер (xdev.arkcom.ru:9999)
-        │  HTTPS
-        ▼
-   ┌─────────────────────────────────────┐
-   │            agent.h                  │  общие типы, конфиг, объявления
-   ├──────────────┬──────────────────────┤
-   │  main.cpp    │  polling.cpp         │  result_sender.cpp
-   │  @essentomori│  @t9tu0              │  @miroslav_pug
-   │  регистрация │  цикл опроса         │  отправка результата
-   │  /wa_reg/    │  /wa_task/           │  /wa_result/
-   └──────────────┴──────────────────────┘
-```
+## Архитектура
+
+```mermaid
+flowchart TB
+    subgraph Server[Сервер xdev.arkcom.ru]
+        REG[POST /wa_reg/<br/>Регистрация]
+        TASK[POST /wa_task/<br/>Получение заданий]
+        RES[POST /wa_result/<br/>Приём результатов]
+    end
+
+    subgraph Agent[Web Agent C++]
+        MAIN[main.cpp<br/>Инициализация<br/>Загрузка config.json]
+        REG_CLIENT[Регистрация<br/>Получение access_code]
+        POLL[polling.cpp<br/>Цикл опроса]
+        HANDLERS[Диспетчер задач<br/>CONF | TASK | FILE | TIMEOUT]
+        RES_SENDER[result_sender.cpp<br/>Отправка результата<br/>multipart/form-data]
+        CONFIG[config.json<br/>UID / access_code / interval]
+    end
+
+    MAIN --> REG_CLIENT
+    REG_CLIENT -->|POST| REG
+    REG -->|access_code| REG_CLIENT
+    REG_CLIENT --> CONFIG
+    
+    POLL -->|POST| TASK
+    TASK -->|task_code, options| POLL
+    POLL --> HANDLERS
+    HANDLERS --> RES_SENDER
+    RES_SENDER -->|multipart| RES
+    
+    POLL -.->|каждые N сек| POLL
 
 **Поток работы:**
 1. Агент регистрируется → получает `access_code`
