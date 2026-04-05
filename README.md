@@ -50,6 +50,7 @@ make
 
 ## Архитектура
 
+```mermaid
 flowchart TB
     subgraph Server["Сервер xdev.arkcom.ru:9999"]
         direction LR
@@ -70,83 +71,58 @@ flowchart TB
     end
 
     Server -- "HTTPS" --> Agent
-    Server -- "HTTPS" --> Agent
-    Server -- "HTTPS" --> Agent
+```
 
 **Поток выполнения:**
 
+```mermaid
 flowchart TD
-    Start([🚀 Запуск])
+    Start([Запуск]) --> Check{Есть HARDCODED_ACCESS_CODE?}
 
-    subgraph Init[Инициализация]
-        Check{Есть HARDCODED_ACCESS_CODE?}
-        Use[использовать напрямую]
-        Register[📝 POST /wa_reg/]
-        Save[сохранить access_code]
-    end
+    Check -->|Да| Use[использовать напрямую]
+    Use --> Loop[polling_loop]
 
-    subgraph MainLoop[Основной цикл - polling_loop]
-        Task[📤 POST /wa_task/]
-        Response{code_response}
-        Sleep[💤 sleep N сек.]
-        ReReg[🔄 re-register]
-    end
+    Check -->|Нет| Register[POST /wa_reg/]
+    Register --> Save[сохранить access_code]
+    Save --> Loop
 
-    subgraph Execute[Выполнение задачи]
-        ExecTask[execute_task]
-        SendResult[send_result]
-        PostResult[📎 POST /wa_result/ multipart]
-    end
+    Loop --> Task[POST /wa_task/]
+    Task --> Response{code_response}
 
-    Start --> Check
+    Response -->|1| Execute[execute_task]
+    Execute --> Send[send_result]
+    Send --> PostResult[POST /wa_result/ multipart]
+    PostResult --> Loop
 
-    Check -->|Да| Use
-    Use --> MainLoop
+    Response -->|0| Sleep[sleep N сек.]
+    Sleep --> Loop
 
-    Check -->|Нет| Register
-    Register --> Save
-    Save --> MainLoop
-
-    MainLoop --> Task
-    Task --> Response
-
-    Response -->|1| ExecTask
-    ExecTask --> SendResult
-    SendResult --> PostResult
-    PostResult --> Task
-
-    Response -->|0| Sleep
-    Sleep --> Task
-
-    Response -->|-2| ReReg
+    Response -->|-2| ReReg[re-register]
     ReReg --> Register
+```
 
 ---
 
 ## Структура проекта
 
-flowchart LR
-    subgraph Repo["📦 WebAgent-LAB/"]
-        direction TB
+```mermaid
+flowchart TD
+    Root["WebAgent-LAB/"]
 
-        subgraph Assets["📁 assets/"]
-            Config["config.json<br/><small>uid агента и интервал опроса</small>"]
-        end
+    Root --> Assets["assets/"]
+    Root --> Include["include/"]
+    Root --> Src["src/"]
+    Root --> CMake["CMakeLists.txt"]
+    Root --> GitIgnore[".gitignore"]
+    Root --> Readme["README.md"]
 
-        subgraph Include["📁 include/"]
-            AgentH["agent.h<br/><small>Config, AgentState, Task,<br/>Logger, Http, Json</small>"]
-        end
+    Assets --> Config["config.json<br/><small>uid агента, интервал опроса</small>"]
+    Include --> AgentH["agent.h<br/><small>Config, AgentState, Task,<br/>Logger, Http, Json</small>"]
 
-        subgraph Src["📁 src/"]
-            Main["main.cpp<br/><small>точка входа, регистрация, утилиты</small>"]
-            Polling["polling.cpp<br/><small>цикл опроса, обработчики заданий</small>"]
-            ResultSender["result_sender.cpp<br/><small>отправка результата с файлами</small>"]
-        end
-
-        CMake["⚙️ CMakeLists.txt"]
-        GitIgnore["🙈 .gitignore"]
-        Readme["📖 README.md"]
-    end
+    Src --> Main["main.cpp<br/><small>точка входа, регистрация, утилиты</small>"]
+    Src --> Polling["polling.cpp<br/><small>цикл опроса, обработчики заданий</small>"]
+    Src --> ResultSender["result_sender.cpp<br/><small>отправка результата с файлами</small>"]
+```
 
 `config.json` копируется в `build/` автоматически при сборке через CMake.
 
@@ -267,14 +243,22 @@ Content-Type: `multipart/form-data`
 
 ### Структура веток
 
-flowchart LR
+```mermaid
+flowchart TD
     Main["main"] --> Dev["dev"]
 
-    Dev --> A["👑 Kovalev<br/>@essentomori<br/>lead + main.cpp, agent.h"]
-    Dev --> B["💻 Gomonov<br/>@ItQ0n<br/>main.cpp, agent.h"]
-    Dev --> C["⚙️ Smirnov<br/>@t9tu0<br/>polling.cpp"]
-    Dev --> D["📤 Pugovkin<br/>@miroslav_pug<br/>result_sender.cpp"]
-    Dev --> E["📚 Naumov<br/>@XXI_Primarch<br/>docs, tests"]
+    Dev --> Kovalev["Kovalev<br/>@essentomori"]
+    Dev --> Gomonov["Gomonov<br/>@ItQ0n"]
+    Dev --> Smirnov["Smirnov<br/>@t9tu0"]
+    Dev --> Pugovkin["Pugovkin<br/>@miroslav_pug"]
+    Dev --> Naumov["Naumov<br/>@XXI_Primarch"]
+
+    Kovalev --> KRole["👑 lead<br/>main.cpp, agent.h"]
+    Gomonov --> GRole["💻 main.cpp, agent.h"]
+    Smirnov --> SRole["⚙️ polling.cpp"]
+    Pugovkin --> PRole["📤 result_sender.cpp"]
+    Naumov --> NRole["📚 docs, tests"]
+```
 
 ### Правила
 
