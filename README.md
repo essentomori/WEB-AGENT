@@ -50,73 +50,103 @@ make
 
 ## Архитектура
 
-```
-┌─────────────────────────────────────────────────────────────┐
-│                  Сервер  xdev.arkcom.ru:9999                 │
-│                                                             │
-│   /api/wa_reg/      /api/wa_task/      /api/wa_result/      │
-└────────┬───────────────────┬──────────────────┬────────────┘
-         │ HTTPS             │ HTTPS            │ HTTPS
-         │                   │                  │
-┌────────▼───────────────────▼──────────────────▼────────────┐
-│                        WebAgent  (C++17)                    │
-│                                                             │
-│  main.cpp              polling.cpp         result_sender    │
-│  ─────────────         ──────────────      ────────────     │
-│  · Logger              · request_task()    · send_result()  │
-│  · Http (libcurl)      · execute_task()    · multipart      │
-│  · Json                · handle_conf()     · file attach    │
-│  · register_agent()    · handle_file()                      │
-│  · main()              · handle_task()                      │
-│                        · handle_timeout()                   │
-│                                                             │
-│              agent.h  ─  общие типы и объявления            │
-│              config.json  ─  uid, interval                  │
-└─────────────────────────────────────────────────────────────┘
-```
+flowchart TB
+    subgraph Server["Сервер xdev.arkcom.ru:9999"]
+        direction LR
+        API1["/api/wa_reg/"]
+        API2["/api/wa_task/"]
+        API3["/api/wa_result/"]
+    end
+
+    subgraph Agent["WebAgent (C++17)"]
+        direction TB
+        subgraph Components[" "]
+            direction LR
+            Main["main.cpp<br/><small>• Logger<br/>• Http (libcurl)<br/>• Json<br/>• register_agent()<br/>• main()</small>"]
+            Polling["polling.cpp<br/><small>• request_task()<br/>• execute_task()<br/>• handle_conf()<br/>• handle_file()<br/>• handle_task()<br/>• handle_timeout()</small>"]
+            Sender["result_sender<br/><small>• send_result()<br/>• multipart<br/>• file attach</small>"]
+        end
+        Other["agent.h — общие типы и объявления<br/>config.json — uid, interval"]
+    end
+
+    Server -- "HTTPS" --> Agent
+    Server -- "HTTPS" --> Agent
+    Server -- "HTTPS" --> Agent
 
 **Поток выполнения:**
 
-```
-Запуск
-  └─ Есть HARDCODED_ACCESS_CODE?
-       ├─ Да  → использовать напрямую
-       └─ Нет → POST /wa_reg/ → сохранить access_code
-                    │
-                    └─ polling_loop() ─────────────────────────┐
-                              │                                 │
-                         POST /wa_task/                         │
-                              │                                 │
-                    ┌─────────▼──────────┐                     │
-                    │   code_responce    │                      │
-                    ├────────────────────┤                      │
-                    │ 1  → execute_task()│                      │
-                    │ 0  → sleep(N сек.) ├─────────────────────►┘
-                    │ -2 → re-register   │
-                    └────────────────────┘
-                              │
-                    execute_task() → send_result()
-                                      └─ POST /wa_result/ multipart
-```
+flowchart TD
+    Start([🚀 Запуск])
+
+    subgraph Init[Инициализация]
+        Check{Есть HARDCODED_ACCESS_CODE?}
+        Use[использовать напрямую]
+        Register[📝 POST /wa_reg/]
+        Save[сохранить access_code]
+    end
+
+    subgraph MainLoop[Основной цикл - polling_loop]
+        Task[📤 POST /wa_task/]
+        Response{code_response}
+        Sleep[💤 sleep N сек.]
+        ReReg[🔄 re-register]
+    end
+
+    subgraph Execute[Выполнение задачи]
+        ExecTask[execute_task]
+        SendResult[send_result]
+        PostResult[📎 POST /wa_result/ multipart]
+    end
+
+    Start --> Check
+
+    Check -->|Да| Use
+    Use --> MainLoop
+
+    Check -->|Нет| Register
+    Register --> Save
+    Save --> MainLoop
+
+    MainLoop --> Task
+    Task --> Response
+
+    Response -->|1| ExecTask
+    ExecTask --> SendResult
+    SendResult --> PostResult
+    PostResult --> Task
+
+    Response -->|0| Sleep
+    Sleep --> Task
+
+    Response -->|-2| ReReg
+    ReReg --> Register
 
 ---
 
 ## Структура проекта
 
-```
-WebAgent-LAB/
-├── assets/
-│   └── config.json          # uid агента и интервал опроса
-├── include/
-│   └── agent.h              # Config, AgentState, Task, Logger, Http, Json
-├── src/
-│   ├── main.cpp             # точка входа, регистрация, утилиты
-│   ├── polling.cpp          # цикл опроса, все обработчики заданий
-│   └── result_sender.cpp    # отправка результата с файлами
-├── CMakeLists.txt
-├── .gitignore
-└── README.md
-```
+flowchart LR
+    subgraph Repo["📦 WebAgent-LAB/"]
+        direction TB
+
+        subgraph Assets["📁 assets/"]
+            Config["config.json<br/><small>uid агента и интервал опроса</small>"]
+        end
+
+        subgraph Include["📁 include/"]
+            AgentH["agent.h<br/><small>Config, AgentState, Task,<br/>Logger, Http, Json</small>"]
+        end
+
+        subgraph Src["📁 src/"]
+            Main["main.cpp<br/><small>точка входа, регистрация, утилиты</small>"]
+            Polling["polling.cpp<br/><small>цикл опроса, обработчики заданий</small>"]
+            ResultSender["result_sender.cpp<br/><small>отправка результата с файлами</small>"]
+        end
+
+        CMake["⚙️ CMakeLists.txt"]
+        GitIgnore["🙈 .gitignore"]
+        Readme["📖 README.md"]
+    end
 
 `config.json` копируется в `build/` автоматически при сборке через CMake.
 
@@ -237,15 +267,14 @@ Content-Type: `multipart/form-data`
 
 ### Структура веток
 
-```
-main
- └── dev
-       ├── Kovalev       # essentomori  — lead + main.cpp, agent.h
-       ├── Gomonov       # ItQ0n        — main.cpp, agent.h
-       ├── Smirnov       # t9tu0        — polling.cpp
-       ├── Pugovkin      # miroslav_pug — result_sender.cpp
-       └── Naumov        # XXI_Primarch — docs, tests
-```
+flowchart LR
+    Main["main"] --> Dev["dev"]
+
+    Dev --> A["👑 Kovalev<br/>@essentomori<br/>lead + main.cpp, agent.h"]
+    Dev --> B["💻 Gomonov<br/>@ItQ0n<br/>main.cpp, agent.h"]
+    Dev --> C["⚙️ Smirnov<br/>@t9tu0<br/>polling.cpp"]
+    Dev --> D["📤 Pugovkin<br/>@miroslav_pug<br/>result_sender.cpp"]
+    Dev --> E["📚 Naumov<br/>@XXI_Primarch<br/>docs, tests"]
 
 ### Правила
 
