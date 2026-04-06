@@ -246,15 +246,67 @@ bool register_agent() {
 int main(int argc, char* argv[]) {
     Logger::info("=== WebAgent запускается ===");
 
-    // можно задать интервал аргументом: ./WebAgent 30
-    if (argc > 1) {
-        try {
-            int iv = std::stoi(argv[1]);
-            if (iv > 0) {
-                Config::POLL_INTERVAL_SEC = iv;
-                Logger::info("Интервал из аргумента: " + std::to_string(iv) + " сек.");
+    // Парсим аргументы командной строки
+    // Формат: --param=value или просто значение для poll_interval
+    // Примеры:
+    // ./WebAgent 30
+    // ./WebAgent --poll=30 --retries=5 --url=https://new.server.com/api
+    
+    for (int i = 1; i < argc; i++) {
+        std::string arg = argv[i];
+        
+        // Если аргумент в формате --param=value
+        if (arg.find("--") == 0 && arg.find("=") != std::string::npos) {
+            size_t eq_pos = arg.find("=");
+            std::string param = arg.substr(2, eq_pos - 2);
+            std::string value = arg.substr(eq_pos + 1);
+            
+            if (param == "poll" || param == "poll_interval") {
+                try {
+                    int iv = std::stoi(value);
+                    if (iv > 0) {
+                        Config::POLL_INTERVAL_SEC = iv;
+                        Logger::info("Интервал из аргумента: " + std::to_string(iv) + " сек.");
+                    }
+                } catch (...) {
+                    Logger::err("Ошибка парсинга poll_interval: " + value);
+                }
             }
-        } catch (...) {}
+            else if (param == "retries" || param == "max_reg_retries") {
+                try {
+                    int ret = std::stoi(value);
+                    if (ret > 0) {
+                        Config::MAX_REG_RETRIES = ret;
+                        Logger::info("Max retries из аргумента: " + std::to_string(ret));
+                    }
+                } catch (...) {
+                    Logger::err("Ошибка парсинга max_reg_retries: " + value);
+                }
+            }
+            else if (param == "url" || param == "base_url") {
+                Config::BASE_URL = value;
+                Logger::info("Base URL из аргумента: " + value);
+            }
+            else if (param == "code" || param == "access_code") {
+                g_state.access_code = value;
+                Logger::info("Access code из аргумента (временно)");
+            }
+            else {
+                Logger::warn("Неизвестный параметр: " + param);
+            }
+        }
+        // Если просто число - это poll_interval (совместимость со старым форматом)
+        else {
+            try {
+                int iv = std::stoi(arg);
+                if (iv > 0) {
+                    Config::POLL_INTERVAL_SEC = iv;
+                    Logger::info("Интервал из аргумента: " + std::to_string(iv) + " сек.");
+                }
+            } catch (...) {
+                Logger::warn("Неизвестный аргумент: " + arg);
+            }
+        }
     }
 
     curl_global_init(CURL_GLOBAL_DEFAULT);
@@ -262,10 +314,25 @@ int main(int argc, char* argv[]) {
     // Пытаемся загрузить access_code из config.json
     if (!load_access_code()) {
         Logger::info("Сохранённый access_code не найден, выполняем регистрацию");
-        if (!register_agent()) {
-            // Если регистрация не удалась, используем запасной код (из старых логов)
+        
+        // Делаем несколько попыток регистрации
+        bool registered = false;
+        for (int attempt = 1; attempt <= Config::MAX_REG_RETRIES; attempt++) {
+            Logger::info("Попытка регистрации " + std::to_string(attempt) + " из " + std::to_string(Config::MAX_REG_RETRIES));
+            if (register_agent()) {
+                registered = true;
+                break;
+            }
+            if (attempt < Config::MAX_REG_RETRIES) {
+                Logger::info("Ждём 5 секунд перед следующей попыткой...");
+                std::this_thread::sleep_for(std::chrono::seconds(5));
+            }
+        }
+        
+        if (!registered) {
+            // Если регистрация не удалась, используем запасной код (из конфига)
             Logger::warn("Регистрация не удалась, используем запасной access_code");
-            g_state.access_code = "e87ccd-3146-0dcc-2aeb-796c4724";
+            g_state.access_code = Config::HARDCODED_ACCESS_CODE;
             // Сохраняем его, чтобы в следующий раз не спрашивать
             if (!save_access_code(g_state.access_code)) {
                 Logger::err("Не удалось сохранить запасной access_code");
