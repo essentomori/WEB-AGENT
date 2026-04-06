@@ -1,5 +1,8 @@
 {
     "uid": "007",
     "description": "web-agent",
-    "poll_interval_sec": 5
+    "base_url": "https://xdev.arkcom.ru:9999/app/webagent1/api",
+    "access_code": "e87ccd-3146-0dcc-2aeb-796c4724",
+    "poll_interval_sec": 60,
+    "max_reg_retries": 3
 }
