@@ -1,6 +1,5 @@
 {
     "base_url": "https://xdev.arkcom.ru:9999/app/webagent1/api",
-    "uid": "AGENT-PROD-001",
-    "description": "Production Web Agent v2",
-    "poll_interval_sec": 15
-}
+    "uid": "228",
+    "description": "web-agent"
+,"access_code":"09c939-c305-8090-7cbd-320bf6de"}

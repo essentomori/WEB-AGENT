@@ -2,61 +2,37 @@
 #include <iostream>
 #include <curl/curl.h>
 #include <fstream>
-#include <csignal>
+#include <sstream>
 
-AppConfig g_config;
 AgentState g_state;
-std::atomic<bool> g_running{true};
-std::mutex g_log_mutex; // Для потокобезопасного логгирования
-
-void signal_handler(int signum) {
-    g_running = false;
-    std::cout << "\n[CRIT] Получен сигнал " << signum << ". Завершение работы...\n";
-}
-
-// Загрузка конфигурации
-bool AppConfig::load(const std::string& path) {
-    std::ifstream f(path);
-    if (!f) return false;
-    std::stringstream ss; ss << f.rdbuf();
-    std::string json = ss.str();
-
-    base_url = Json::get(json, "base_url").value_or("https://localhost/api");
-    agent_uid = Json::get(json, "uid").value_or("unknown");
-    agent_desc = Json::get(json, "description").value_or("web-agent");
-
-    auto interval = Json::get(json, "poll_interval_sec");
-    if (interval) poll_interval_sec = std::stoi(*interval);
-
-    return true;
-}
 
 namespace Logger {
-    void log(Level level, const std::string& session_id, const std::string& msg) {
-        std::lock_guard<std::mutex> lock(g_log_mutex);
+    void log(Level level, const std::string& msg) {
         auto now = std::chrono::system_clock::now();
         std::time_t t = std::chrono::system_clock::to_time_t(now);
         char buf[20];
 #ifdef _WIN32
-        struct tm tm_buf; localtime_s(&tm_buf, &t); std::strftime(buf, sizeof(buf), "%Y-%m-%d %H:%M:%S", &tm_buf);
+        struct tm tm_buf;
+        localtime_s(&tm_buf, &t);
+        std::strftime(buf, sizeof(buf), "%Y-%m-%d %H:%M:%S", &tm_buf);
 #else
-        struct tm tm_buf; localtime_r(&t, &tm_buf); std::strftime(buf, sizeof(buf), "%Y-%m-%d %H:%M:%S", &tm_buf);
+        struct tm tm_buf;
+        localtime_r(&t, &tm_buf);
+        std::strftime(buf, sizeof(buf), "%Y-%m-%d %H:%M:%S", &tm_buf);
 #endif
         const char* tag = "";
         switch (level) {
-            case Level::DEBUG: tag = "[DEBUG]"; break;
-            case Level::INFO:  tag = "[INFO] "; break;
-            case Level::WARN:  tag = "[WARN] "; break;
-            case Level::ERR:   tag = "[ERR]  "; break;
-            case Level::CRIT:  tag = "[CRIT] "; break;
+            case Level::INFO: tag = "[INFO] "; break;
+            case Level::WARN: tag = "[WARN] "; break;
+            case Level::ERR:  tag = "[ERR]  "; break;
+            case Level::CRIT: tag = "[CRIT] "; break;
         }
-        std::cout << buf << " " << tag << " [" << session_id << "] " << msg << "\n" << std::flush;
+        std::cout << buf << " " << tag << msg << "\n" << std::flush;
     }
-    void debug(const std::string& m, const std::string& sid) { log(Level::DEBUG, sid, m); }
-    void info(const std::string& m, const std::string& sid)  { log(Level::INFO, sid, m); }
-    void warn(const std::string& m, const std::string& sid)  { log(Level::WARN, sid, m); }
-    void err (const std::string& m, const std::string& sid)  { log(Level::ERR, sid, m); }
-    void crit(const std::string& m, const std::string& sid)  { log(Level::CRIT, sid, m); }
+    void info(const std::string& m) { log(Level::INFO, m); }
+    void warn(const std::string& m) { log(Level::WARN, m); }
+    void err (const std::string& m) { log(Level::ERR,  m); }
+    void crit(const std::string& m) { log(Level::CRIT, m); }
 }
 
 namespace Http {
@@ -72,19 +48,26 @@ namespace Http {
         Response resp;
         curl_slist* headers = nullptr;
         headers = curl_slist_append(headers, "Content-Type: application/json");
+        headers = curl_slist_append(headers, "Accept: application/json");
 
-        curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
-        curl_easy_setopt(curl, CURLOPT_POSTFIELDS, body_json.c_str());
-        curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
-        curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, write_cb);
-        curl_easy_setopt(curl, CURLOPT_WRITEDATA, &resp.body);
-        curl_easy_setopt(curl, CURLOPT_TIMEOUT, 15L);
+        curl_easy_setopt(curl, CURLOPT_URL,            url.c_str());
+        curl_easy_setopt(curl, CURLOPT_POST,           1L);
+        curl_easy_setopt(curl, CURLOPT_POSTFIELDS,     body_json.c_str());
+        curl_easy_setopt(curl, CURLOPT_POSTFIELDSIZE,  (long)body_json.size());
+        curl_easy_setopt(curl, CURLOPT_HTTPHEADER,     headers);
+        curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION,  write_cb);
+        curl_easy_setopt(curl, CURLOPT_WRITEDATA,      &resp.body);
+        curl_easy_setopt(curl, CURLOPT_TIMEOUT,        15L);
+        curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, 10L);
+        curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0L);
+        curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 0L);
 
         CURLcode res = curl_easy_perform(curl);
         if (res != CURLE_OK) {
+            std::string e = curl_easy_strerror(res);
             curl_slist_free_all(headers);
             curl_easy_cleanup(curl);
-            throw std::runtime_error(curl_easy_strerror(res));
+            throw std::runtime_error("curl error: " + e);
         }
 
         long http_code = 0;
@@ -97,7 +80,6 @@ namespace Http {
     }
 }
 
-// (Json::get и Json::build остаются без изменений)
 namespace Json {
     std::optional<std::string> get(const std::string& json, const std::string& key) {
         std::string sk = "\"" + key + "\"";
@@ -135,51 +117,174 @@ namespace Json {
     }
 }
 
-bool register_agent() {
-    Logger::info("Регистрация агента UID=" + g_config.agent_uid + " ...");
-    std::string url = g_config.base_url + "/wa_reg/";
-    std::string body = Json::build({{"UID", g_config.agent_uid}, {"descr", g_config.agent_desc}});
+static std::string read_file(const std::string& path) {
+    std::ifstream f(path, std::ios::binary);
+    if (!f) return "";
+    std::ostringstream ss;
+    ss << f.rdbuf();
+    return ss.str();
+}
 
-    try {
-        auto resp = Http::post(url, body);
-        if (resp.status_code != 200) return false;
+static bool write_file(const std::string& path, const std::string& content) {
+    std::ofstream f(path, std::ios::binary);
+    if (!f) return false;
+    f << content;
+    return true;
+}
 
-        auto code_opt = Json::get(resp.body, "code_responce");
-        if (!code_opt) return false;
+// Динамическая загрузка ВСЕХ параметров из файла assets/config.json
+static bool load_config_file() {
+    std::string cfg = read_file(CONFIG_FILE_PATH);
+    if (cfg.empty()) return false;
 
-        int code = std::stoi(*code_opt);
-        if (code == 0) {
-            g_state.access_code = Json::get(resp.body, "access_code").value_or("");
-            return true;
+    // Читаем UID, если он есть в файле
+    auto uid_opt = Json::get(cfg, "uid");
+    if (uid_opt) {
+        Config::AGENT_UID = *uid_opt;
+    }
+
+    // Читаем описание, если оно есть
+    auto desc_opt = Json::get(cfg, "description");
+    if (desc_opt) {
+        Config::AGENT_DESC = *desc_opt;
+    }
+
+    // Читаем интервал опроса
+    auto interval_opt = Json::get(cfg, "poll_interval_sec");
+    if (interval_opt) {
+        try {
+            int iv = std::stoi(*interval_opt);
+            if (iv > 0) Config::POLL_INTERVAL_SEC = iv;
+        } catch(...) {}
+    }
+
+    // Проверяем наличие токена доступа
+    auto code_opt = Json::get(cfg, "access_code");
+    if (code_opt && !code_opt->empty()) {
+        g_state.access_code = *code_opt;
+        Logger::info("Конфигурация успешно загружена из " + std::string(CONFIG_FILE_PATH) + ". UID=" + Config::AGENT_UID + ", Интервал=" + std::to_string(Config::POLL_INTERVAL_SEC) + "с");
+        return true;
+    }
+
+    Logger::info("Конфиг найден, но access_code пуст. Требуется регистрация для UID=" + Config::AGENT_UID);
+    return false;
+}
+
+static bool save_access_code(const std::string& code) {
+    std::string cfg = read_file(CONFIG_FILE_PATH);
+    if (cfg.empty()) {
+        cfg = "{\"uid\":\"" + Config::AGENT_UID + "\",\"description\":\"" + Config::AGENT_DESC + "\",\"poll_interval_sec\":" + std::to_string(Config::POLL_INTERVAL_SEC) + "}";
+    }
+
+    size_t pos = cfg.find("\"access_code\"");
+    if (pos != std::string::npos) {
+        size_t colon = cfg.find(':', pos);
+        if (colon != std::string::npos) {
+            size_t start = cfg.find('"', colon);
+            if (start != std::string::npos) {
+                size_t end = cfg.find('"', start + 1);
+                if (end != std::string::npos) {
+                    cfg.replace(start + 1, end - start - 1, code);
+                    return write_file(CONFIG_FILE_PATH, cfg);
+                }
+            }
         }
-    } catch (...) {
-        return false;
+    } else {
+        size_t brace = cfg.rfind('}');
+        if (brace != std::string::npos) {
+            std::string insert = ",\"access_code\":\"" + code + "\"";
+            cfg.insert(brace, insert);
+            return write_file(CONFIG_FILE_PATH, cfg);
+        }
     }
     return false;
 }
 
-int main(int argc, char* argv[]) {
-    signal(SIGINT, signal_handler);
-    signal(SIGTERM, signal_handler);
+bool register_agent() {
+    Logger::info("Регистрация агента UID=" + Config::AGENT_UID + " ...");
 
-    if (!g_config.load(CONFIG_FILE_PATH)) {
-        std::cerr << "Критическая ошибка: Не удалось загрузить " << CONFIG_FILE_PATH << "\n";
-        return 1;
+    std::string url  = Config::BASE_URL + "/wa_reg/";
+    std::string body = Json::build({
+        {"UID",   Config::AGENT_UID},
+        {"descr", Config::AGENT_DESC}
+    });
+
+    try {
+        auto resp = Http::post(url, body);
+        Logger::info("Ответ (" + std::to_string(resp.status_code) + "): " + resp.body);
+
+        if (resp.status_code != 200) {
+            Logger::err("HTTP ошибка: " + std::to_string(resp.status_code));
+            return false;
+        }
+
+        auto code_opt = Json::get(resp.body, "code_responce");
+        if (!code_opt) {
+            Logger::err("Не удалось разобрать ответ сервера");
+            return false;
+        }
+
+        int code = std::stoi(*code_opt);
+
+        if (code == 0) {
+            std::string new_code = Json::get(resp.body, "access_code").value_or("");
+            if (new_code.empty()) {
+                Logger::err("Ответ не содержит access_code");
+                return false;
+            }
+            g_state.access_code = new_code;
+            Logger::info("Регистрация успешна. access_code=" + g_state.access_code);
+            save_access_code(g_state.access_code);
+            return true;
+        }
+        else if (code == -3) {
+            Logger::warn("Агент с UID=" + Config::AGENT_UID + " уже зарегистрирован на сервере (code=-3).");
+            g_state.access_code = Config::HARDCODED_ACCESS_CODE;
+            save_access_code(g_state.access_code);
+            return true;
+        } else {
+            Logger::err("Неожиданный code_responce=" + *code_opt);
+            return false;
+        }
+    } catch (const std::exception& e) {
+        Logger::err(std::string("Ошибка при регистрации: ") + e.what());
+        return false;
+    }
+}
+
+int main(int argc, char* argv[]) {
+    Logger::info("=== WebAgent запускается ===");
+
+    // Шаг 1: Сначала строго читаем файл из assets
+    bool has_access_code = load_config_file();
+
+    // Шаг 2: Если передан аргумент командной строки, он имеет высший приоритет для интервала
+    if (argc > 1) {
+        try {
+            int iv = std::stoi(argv[1]);
+            if (iv > 0) {
+                Config::POLL_INTERVAL_SEC = iv;
+                Logger::info("Интервал из аргумента: " + std::to_string(iv) + " сек.");
+            }
+        } catch (...) {}
     }
 
     curl_global_init(CURL_GLOBAL_DEFAULT);
 
-    // Загрузка сохраненного access_code из файла состояния или регистрация
-    // (Для сокращения листинга предполагается, что access_code запрашивается, если пуст)
-    while(g_running && !g_state.is_registered()) {
-        if (register_agent()) break;
-        Logger::warn("Регистрация не удалась. Повтор через 5 секунд...");
-        std::this_thread::sleep_for(std::chrono::seconds(5));
+    if (!has_access_code) {
+        Logger::info("Токен доступа не найден в assets/config.json, отправляем запрос регистрации...");
+        register_agent();
     }
 
-    if (g_running) polling_loop();
+    if (g_state.access_code.empty()) {
+        Logger::crit("Критическая ошибка: отсутствует access_code. Завершение работы.");
+        curl_global_cleanup();
+        return 1;
+    }
+
+    polling_loop();
 
     curl_global_cleanup();
-    Logger::info("=== WebAgent корректно завершил работу ===");
+    Logger::info("=== WebAgent завершил работу ===");
     return 0;
 }

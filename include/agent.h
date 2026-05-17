@@ -10,30 +10,21 @@
 #include <map>
 #include <vector>
 #include <fstream>
-#include <atomic>
-#include <mutex>
-#include <thread>
 
-inline constexpr const char* CONFIG_FILE_PATH = "config.json";
+// Путь к конфигу строго внутри папки assets относительно папки build
+inline constexpr const char* CONFIG_FILE_PATH = "../assets/config.json";
 
-// Глобальный флаг для Graceful Shutdown
-extern std::atomic<bool> g_running;
+namespace Config {
+    const std::string BASE_URL   = "https://xdev.arkcom.ru:9999/app/webagent1/api";
 
-// Полноценная конфигурация (без hardcode)
-struct AppConfig {
-    std::string base_url;
-    std::string agent_uid;
-    std::string agent_desc;
-    int poll_interval_sec = 60;
-    int max_reg_retries = 3;
-    int max_backoff_sec = 300;
-    std::string task_dir = "./tasks";
-    std::string result_dir = "./results";
+    // Убираем const и пишем inline, чтобы значения можно было динамически перезаписать из файла
+    inline std::string AGENT_UID  = "007";
+    inline std::string AGENT_DESC = "web-agent";
 
-    bool load(const std::string& path);
-};
-
-extern AppConfig g_config;
+    const std::string HARDCODED_ACCESS_CODE = "e87ccd-3146-0dcc-2aeb-796c4724";
+    inline int POLL_INTERVAL_SEC = 60;
+    const int MAX_REG_RETRIES = 3;
+}
 
 struct AgentState {
     std::string access_code;
@@ -51,13 +42,12 @@ struct Task {
 };
 
 namespace Logger {
-    enum class Level { DEBUG, INFO, WARN, ERR, CRIT };
-    void log(Level level, const std::string& session_id, const std::string& msg);
-    void debug(const std::string& m, const std::string& sid = "-");
-    void info(const std::string& m, const std::string& sid = "-");
-    void warn(const std::string& m, const std::string& sid = "-");
-    void err (const std::string& m, const std::string& sid = "-");
-    void crit(const std::string& m, const std::string& sid = "-");
+    enum class Level { INFO, WARN, ERR, CRIT };
+    void log(Level level, const std::string& msg);
+    void info(const std::string& m);
+    void warn(const std::string& m);
+    void err (const std::string& m);
+    void crit(const std::string& m);
 }
 
 namespace Http {
