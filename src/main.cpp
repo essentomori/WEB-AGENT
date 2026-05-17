@@ -1,359 +1,281 @@
-// main.cpp - @essentomori
-// точка входа, регистрация, утилиты Logger/Http/Json
+#include "agent/Config.h"
+#include "agent/Logger.h"
+#include "agent/HttpClient.h"
+#include "agent/TaskDispatcher.h"
+#include "agent/ResultSender.h"
+#include "agent/StateMachine.h"
+#include "agent/models/Task.h"
 
-#include "agent.h"
 #include <iostream>
-#include <curl/curl.h>
-#include <fstream>
-#include <sstream>
+#include <signal.h>
+#include <atomic>
 
-AgentState g_state;
+using namespace agent;
 
-namespace Logger {
-    void log(Level level, const std::string& msg) {
-        auto now = std::chrono::system_clock::now();
-        std::time_t t = std::chrono::system_clock::to_time_t(now);
-        char buf[20];
-        std::strftime(buf, sizeof(buf), "%Y-%m-%d %H:%M:%S", std::localtime(&t));
-        const char* tag = "";
-        switch (level) {
-            case Level::INFO: tag = "[INFO] "; break;
-            case Level::WARN: tag = "[WARN] "; break;
-            case Level::ERR:  tag = "[ERR]  "; break;
-            case Level::CRIT: tag = "[CRIT] "; break;
+static std::atomic<bool> running{true};
+static std::unique_ptr<TaskDispatcher> dispatcher;
+
+void signalHandler(int signal) {
+    Logger::info("Received signal " + std::to_string(signal) + ", shutting down...");
+    running = false;
+    if (dispatcher) {
+        dispatcher->stop();
+    }
+}
+
+class Agent {
+public:
+    Agent() : http_(Config::getInstance().getServer()) {}
+    
+    bool initialize() {
+        // Setup signal handlers
+        signal(SIGINT, signalHandler);
+        signal(SIGTERM, signalHandler);
+        
+        // Load configuration
+        auto& config = Config::getInstance();
+        
+        if (!config.loadFromFile("config/agent.conf")) {
+            Logger::warning("Config file not found, using environment variables");
+            if (!config.loadFromEnv()) {
+                Logger::error("No valid configuration found");
+                return false;
+            }
         }
-        std::cout << buf << " " << tag << msg << "\n" << std::flush;
+        
+        // Initialize logger
+        Logger::init(config.getLogging());
+        
+        // Create directories
+        createDirectories();
+        
+        // Initialize task dispatcher
+        dispatcher = std::make_unique<TaskDispatcher>(4);
+        
+        // Register task handlers
+        registerHandlers();
+        
+        state_machine_.setStateCallback([](AgentState state, const std::string& info) {
+            Logger::info("State transition: " + std::to_string(static_cast<int>(state)) + " - " + info);
+        });
+        
+        state_machine_.processEvent(StateEvent::INIT_OK);
+        
+        return true;
     }
-    void info(const std::string& m) { log(Level::INFO, m); }
-    void warn(const std::string& m) { log(Level::WARN, m); }
-    void err (const std::string& m) { log(Level::ERR,  m); }
-    void crit(const std::string& m) { log(Level::CRIT, m); }
-}
-
-namespace Http {
-    static size_t write_cb(char* ptr, size_t size, size_t nmemb, void* ud) {
-        static_cast<std::string*>(ud)->append(ptr, size * nmemb);
-        return size * nmemb;
-    }
-
-    Response post(const std::string& url, const std::string& body_json) {
-        CURL* curl = curl_easy_init();
-        if (!curl) throw std::runtime_error("curl_easy_init() failed");
-
-        Response resp;
-        curl_slist* headers = nullptr;
-        headers = curl_slist_append(headers, "Content-Type: application/json");
-        headers = curl_slist_append(headers, "Accept: application/json");
-
-        curl_easy_setopt(curl, CURLOPT_URL,            url.c_str());
-        curl_easy_setopt(curl, CURLOPT_POST,           1L);
-        curl_easy_setopt(curl, CURLOPT_POSTFIELDS,     body_json.c_str());
-        curl_easy_setopt(curl, CURLOPT_POSTFIELDSIZE,  (long)body_json.size());
-        curl_easy_setopt(curl, CURLOPT_HTTPHEADER,     headers);
-        curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION,  write_cb);
-        curl_easy_setopt(curl, CURLOPT_WRITEDATA,      &resp.body);
-        curl_easy_setopt(curl, CURLOPT_TIMEOUT,        15L);
-        curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, 10L);
-        curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0L);
-        curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 0L);
-
-        CURLcode res = curl_easy_perform(curl);
-        if (res != CURLE_OK) {
-            std::string e = curl_easy_strerror(res);
-            curl_slist_free_all(headers);
-            curl_easy_cleanup(curl);
-            throw std::runtime_error("curl error: " + e);
+    
+    void run() {
+        Logger::info("Agent starting up", "", "");
+        
+        while (running) {
+            state_machine_.processEvent(StateEvent::RETRY);
+            auto state = state_machine_.getCurrentState();
+            
+            switch (state) {
+                case AgentState::REGISTERING:
+                    performRegistration();
+                    break;
+                    
+                case AgentState::POLLING:
+                    pollForTasks();
+                    break;
+                    
+                case AgentState::ERROR:
+                    handleError();
+                    break;
+                    
+                case AgentState::SHUTTING_DOWN:
+                    running = false;
+                    break;
+                    
+                default:
+                    break;
+            }
+            
+            std::this_thread::sleep_for(std::chrono::seconds(1));
         }
-
-        long http_code = 0;
-        curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &http_code);
-        resp.status_code = (int)http_code;
-
-        curl_slist_free_all(headers);
-        curl_easy_cleanup(curl);
-        return resp;
+        
+        cleanup();
     }
-}
-
-namespace Json {
-    std::optional<std::string> get(const std::string& json, const std::string& key) {
-        std::string sk = "\"" + key + "\"";
-        size_t pos = json.find(sk);
-        if (pos == std::string::npos) return std::nullopt;
-        pos += sk.size();
-        while (pos < json.size() && (json[pos] == ' ' || json[pos] == ':')) ++pos;
-        if (pos >= json.size()) return std::nullopt;
-        if (json[pos] == '"') {
-            ++pos;
-            size_t end = json.find('"', pos);
-            if (end == std::string::npos) return std::nullopt;
-            return json.substr(pos, end - pos);
-        } else {
-            size_t end = pos;
-            while (end < json.size() && json[end] != ',' && json[end] != '}') ++end;
-            std::string val = json.substr(pos, end - pos);
-            val.erase(0, val.find_first_not_of(" \t\r\n"));
-            val.erase(val.find_last_not_of(" \t\r\n") + 1);
-            return val;
-        }
+    
+private:
+    void createDirectories() {
+        const auto& exec = Config::getInstance().getExecution();
+        std::error_code ec;
+        std::filesystem::create_directories(exec.task_dir, ec);
+        std::filesystem::create_directories(exec.result_dir, ec);
+        std::filesystem::create_directories(exec.temp_dir, ec);
+        std::filesystem::create_directories(exec.log_dir, ec);
     }
-
-    std::string build(std::initializer_list<std::pair<std::string,std::string>> pairs) {
-        std::ostringstream ss;
-        ss << "{";
-        bool first = true;
-        for (auto& [k, v] : pairs) {
-            if (!first) ss << ",";
-            first = false;
-            ss << "\"" << k << "\":\"" << v << "\"";
-        }
-        ss << "}";
-        return ss.str();
+    
+    void registerHandlers() {
+        auto& registry = TaskHandlerRegistry::getInstance();
+        registry.registerHandler(std::make_unique<ConfigTaskHandler>());
+        registry.registerHandler(std::make_unique<FileTaskHandler>());
+        registry.registerHandler(std::make_unique<CommandTaskHandler>());
+        registry.registerHandler(std::make_unique<TimeoutTaskHandler>());
     }
-}
-
-// ---------- Функции для работы с config.json ----------
-static std::string read_file(const std::string& path) {
-    std::ifstream f(path, std::ios::binary);
-    if (!f) return "";
-    std::ostringstream ss;
-    ss << f.rdbuf();
-    return ss.str();
-}
-
-static bool write_file(const std::string& path, const std::string& content) {
-    std::ofstream f(path, std::ios::binary);
-    if (!f) return false;
-    f << content;
-    return true;
-}
-
-// Загружает access_code из config.json (если есть)
-static bool load_access_code() {
-    std::string cfg = read_file(CONFIG_FILE_PATH);
-    if (cfg.empty()) return false;
-
-    size_t pos = cfg.find("\"access_code\"");
-    if (pos == std::string::npos) return false;
-    size_t colon = cfg.find(':', pos);
-    if (colon == std::string::npos) return false;
-    size_t start = cfg.find('"', colon);
-    if (start == std::string::npos) return false;
-    size_t end = cfg.find('"', start + 1);
-    if (end == std::string::npos) return false;
-
-    std::string code = cfg.substr(start + 1, end - start - 1);
-    if (code.empty()) return false;
-
-    g_state.access_code = code;
-    Logger::info("Загружен access_code из config.json: " + code);
-    return true;
-}
-
-// Сохраняет access_code в config.json
-static bool save_access_code(const std::string& code) {
-    std::string cfg = read_file(CONFIG_FILE_PATH);
-    if (cfg.empty()) {
-        // Создаём базовый конфиг
-        cfg = "{\"uid\":\"" + Config::AGENT_UID + "\","
-              "\"description\":\"" + Config::AGENT_DESC + "\","
-              "\"poll_interval_sec\":" + std::to_string(Config::POLL_INTERVAL_SEC) + "}";
-    }
-
-    size_t pos = cfg.find("\"access_code\"");
-    if (pos != std::string::npos) {
-        size_t colon = cfg.find(':', pos);
-        if (colon != std::string::npos) {
-            size_t start = cfg.find('"', colon);
-            if (start != std::string::npos) {
-                size_t end = cfg.find('"', start + 1);
-                if (end != std::string::npos) {
-                    cfg.replace(start + 1, end - start - 1, code);
-                    return write_file(CONFIG_FILE_PATH, cfg);
+    
+    void performRegistration() {
+        Logger::info("Registering agent with UID: " + Config::getInstance().getIdentity().uid);
+        
+        std::string body = R"({
+            "UID": ")" + Config::getInstance().getIdentity().uid + R"(",
+            "descr": ")" + Config::getInstance().getIdentity().description + R"("
+        })";
+        
+        auto response = http_.post(Config::getInstance().getServer().registration_endpoint, body);
+        
+        if (response.success()) {
+            try {
+                auto json = nlohmann::json::parse(response.body);
+                if (json.contains("code_responce") && json["code_responce"] == 0) {
+                    if (json.contains("access_code")) {
+                        std::string code = json["access_code"];
+                        Config::getInstance().setAccessCode(code);
+                        Logger::info("Registration successful, access_code: " + code);
+                        state_machine_.processEvent(StateEvent::REGISTER_OK);
+                    }
+                } else if (json.contains("code_responce") && json["code_responce"] == -3) {
+                    Logger::info("Agent already registered");
+                    state_machine_.processEvent(StateEvent::REGISTER_OK);
                 }
+            } catch (const std::exception& e) {
+                Logger::error("Failed to parse registration response: " + std::string(e.what()));
+                state_machine_.processEvent(StateEvent::REGISTER_FAIL);
             }
-        }
-    } else {
-        size_t brace = cfg.rfind('}');
-        if (brace != std::string::npos) {
-            std::string insert = ",\"access_code\":\"" + code + "\"";
-            cfg.insert(brace, insert);
-            return write_file(CONFIG_FILE_PATH, cfg);
-        }
-    }
-    return false;
-}
-
-// Регистрация агента на сервере (получение access_code)
-bool register_agent() {
-    Logger::info("Регистрация агента UID=" + Config::AGENT_UID + " ...");
-
-    std::string url  = Config::BASE_URL + "/wa_reg/";
-    std::string body = Json::build({
-        {"UID",   Config::AGENT_UID},
-        {"descr", Config::AGENT_DESC}
-    });
-
-    try {
-        auto resp = Http::post(url, body);
-        Logger::info("Ответ (" + std::to_string(resp.status_code) + "): " + resp.body);
-
-        if (resp.status_code != 200) {
-            Logger::err("HTTP ошибка: " + std::to_string(resp.status_code));
-            return false;
-        }
-
-        auto code_opt = Json::get(resp.body, "code_responce");  // исправлено на code_responce
-        if (!code_opt) {
-            Logger::err("Не удалось разобрать ответ");
-            return false;
-        }
-
-        int code = std::stoi(*code_opt);
-
-        if (code == 0) {
-            std::string new_code = Json::get(resp.body, "access_code").value_or("");
-            if (new_code.empty()) {
-                Logger::err("Ответ не содержит access_code");
-                return false;
-            }
-            g_state.access_code = new_code;
-            Logger::info("Регистрация успешна. access_code=" + g_state.access_code);
-            if (!save_access_code(g_state.access_code)) {
-                Logger::err("Не удалось сохранить access_code в config.json");
-                return false;
-            }
-            return true;
-        } else if (code == -3) {
-            // Агент уже зарегистрирован – пытаемся загрузить код из файла
-            Logger::warn("Агент уже зарегистрирован (code=-3)");
-            if (load_access_code()) {
-                Logger::info("Загружен сохранённый access_code");
-                return true;
-            }
-            Logger::err("Нет сохранённого access_code, регистрация невозможна");
-            return false;
         } else {
-            Logger::err("Неожиданный code_responce=" + *code_opt);
-            return false;
+            Logger::error("Registration failed: " + response.error_message);
+            state_machine_.processEvent(StateEvent::REGISTER_FAIL);
         }
-    } catch (const std::exception& e) {
-        Logger::err(std::string("Ошибка при регистрации: ") + e.what());
-        return false;
     }
-}
+    
+    void pollForTasks() {
+        auto& config = Config::getInstance();
+        auto& polling = config.getPolling();
+        
+        std::string body = R"({
+            "UID": ")" + config.getIdentity().uid + R"(",
+            "access_code": ")" + config.getIdentity().access_code.value_or("") + R"("
+        })";
+        
+        auto response = http_.post(config.getServer().task_endpoint, body);
+        
+        if (!response.success()) {
+            Logger::warning("Polling failed: " + response.error_message);
+            applyBackoff();
+            return;
+        }
+        
+        resetBackoff();
+        
+        try {
+            auto json = nlohmann::json::parse(response.body);
+            int code = json.value("code_responce", -1);
+            
+            if (code == 1) {
+                // Task received
+                Task task;
+                task.task_code = json.value("task_code", "");
+                task.session_id = json.value("session_id", "");
+                task.options = json.value("options", "");
+                task.status = json.value("status", "");
+                
+                state_machine_.processEvent(StateEvent::TASK_RECEIVED);
+                
+                // Submit to dispatcher
+                auto future = dispatcher->submit(task);
+                auto result = future.get();
+                
+                // Send result
+                sendResult(result);
+                
+                state_machine_.processEvent(StateEvent::TASK_COMPLETED);
+                
+            } else if (code == 0) {
+                // No tasks
+                Logger::debug("No tasks available", "", "");
+                
+            } else if (code == -2) {
+                // Invalid access code
+                Logger::error("Invalid access code, re-registering");
+                state_machine_.processEvent(StateEvent::REGISTER_FAIL);
+            }
+            
+        } catch (const std::exception& e) {
+            Logger::error("Failed to parse task response: " + std::string(e.what()));
+        }
+        
+        // Wait before next poll
+        std::this_thread::sleep_for(std::chrono::seconds(polling.base_interval_sec));
+    }
+    
+    void sendResult(const Result& result) {
+        ResultSender sender(Config::getInstance().getServer());
+        
+        if (sender.send(result)) {
+            Logger::info("Result sent successfully", result.task_id, result.session_id);
+        } else {
+            Logger::error("Failed to send result", result.task_id, result.session_id);
+            // Queue for retry
+            failed_results_.push_back(result);
+        }
+    }
+    
+    void applyBackoff() {
+        auto& polling = Config::getInstance().getPolling();
+        current_backoff_ = std::min(current_backoff_ * polling.backoff_multiplier, 
+                                   static_cast<double>(polling.max_interval_sec));
+        std::this_thread::sleep_for(std::chrono::seconds(static_cast<int>(current_backoff_)));
+    }
+    
+    void resetBackoff() {
+        current_backoff_ = static_cast<double>(Config::getInstance().getPolling().base_interval_sec);
+    }
+    
+    void handleError() {
+        Logger::warning("Agent in error state, attempting recovery");
+        std::this_thread::sleep_for(std::chrono::seconds(5));
+        state_machine_.processEvent(StateEvent::RETRY);
+    }
+    
+    void cleanup() {
+        Logger::info("Cleaning up...");
+        
+        // Clean temporary files
+        const auto& exec = Config::getInstance().getExecution();
+        std::error_code ec;
+        std::filesystem::remove_all(exec.temp_dir, ec);
+        
+        // Retry failed results
+        for (const auto& result : failed_results_) {
+            ResultSender sender(Config::getInstance().getServer());
+            sender.send(result);
+        }
+        
+        state_machine_.processEvent(StateEvent::SHUTDOWN);
+        Logger::info("Agent shutdown complete");
+    }
+    
+    HttpClient http_;
+    StateMachine state_machine_;
+    std::vector<Result> failed_results_;
+    double current_backoff_ = Config::getInstance().getPolling().base_interval_sec;
+};
 
 int main(int argc, char* argv[]) {
-    Logger::info("=== WebAgent запускается ===");
-
-    // Парсим аргументы командной строки
-    // Формат: --param=value или просто значение для poll_interval
-    // Примеры:
-    // ./WebAgent 30
-    // ./WebAgent --poll=30 --retries=5 --url=https://new.server.com/api
-    
-    for (int i = 1; i < argc; i++) {
-        std::string arg = argv[i];
-        
-        // Если аргумент в формате --param=value
-        if (arg.find("--") == 0 && arg.find("=") != std::string::npos) {
-            size_t eq_pos = arg.find("=");
-            std::string param = arg.substr(2, eq_pos - 2);
-            std::string value = arg.substr(eq_pos + 1);
-            
-            if (param == "poll" || param == "poll_interval") {
-                try {
-                    int iv = std::stoi(value);
-                    if (iv > 0) {
-                        Config::POLL_INTERVAL_SEC = iv;
-                        Logger::info("Интервал из аргумента: " + std::to_string(iv) + " сек.");
-                    }
-                } catch (...) {
-                    Logger::err("Ошибка парсинга poll_interval: " + value);
-                }
-            }
-            else if (param == "retries" || param == "max_reg_retries") {
-                try {
-                    int ret = std::stoi(value);
-                    if (ret > 0) {
-                        Config::MAX_REG_RETRIES = ret;
-                        Logger::info("Max retries из аргумента: " + std::to_string(ret));
-                    }
-                } catch (...) {
-                    Logger::err("Ошибка парсинга max_reg_retries: " + value);
-                }
-            }
-            else if (param == "url" || param == "base_url") {
-                Config::BASE_URL = value;
-                Logger::info("Base URL из аргумента: " + value);
-            }
-            else if (param == "code" || param == "access_code") {
-                g_state.access_code = value;
-                Logger::info("Access code из аргумента (временно)");
-            }
-            else {
-                Logger::warn("Неизвестный параметр: " + param);
-            }
-        }
-        // Если просто число - это poll_interval (совместимость со старым форматом)
-        else {
-            try {
-                int iv = std::stoi(arg);
-                if (iv > 0) {
-                    Config::POLL_INTERVAL_SEC = iv;
-                    Logger::info("Интервал из аргумента: " + std::to_string(iv) + " сек.");
-                }
-            } catch (...) {
-                Logger::warn("Неизвестный аргумент: " + arg);
-            }
-        }
-    }
-
-    curl_global_init(CURL_GLOBAL_DEFAULT);
-
-    // Пытаемся загрузить access_code из config.json
-    if (!load_access_code()) {
-        Logger::info("Сохранённый access_code не найден, выполняем регистрацию");
-        
-        // Делаем несколько попыток регистрации
-        bool registered = false;
-        for (int attempt = 1; attempt <= Config::MAX_REG_RETRIES; attempt++) {
-            Logger::info("Попытка регистрации " + std::to_string(attempt) + " из " + std::to_string(Config::MAX_REG_RETRIES));
-            if (register_agent()) {
-                registered = true;
-                break;
-            }
-            if (attempt < Config::MAX_REG_RETRIES) {
-                Logger::info("Ждём 5 секунд перед следующей попыткой...");
-                std::this_thread::sleep_for(std::chrono::seconds(5));
-            }
+    try {
+        Agent agent;
+        if (!agent.initialize()) {
+            std::cerr << "Failed to initialize agent" << std::endl;
+            return 1;
         }
         
-        if (!registered) {
-            // Если регистрация не удалась, используем запасной код (из конфига)
-            Logger::warn("Регистрация не удалась, используем запасной access_code");
-            g_state.access_code = Config::HARDCODED_ACCESS_CODE;
-            // Сохраняем его, чтобы в следующий раз не спрашивать
-            if (!save_access_code(g_state.access_code)) {
-                Logger::err("Не удалось сохранить запасной access_code");
-            } else {
-                Logger::info("Запасной access_code сохранён в config.json");
-            }
-        }
-    } else {
-        Logger::info("Используем access_code из config.json");
-    }
-
-    // Если код всё ещё пуст – завершаем
-    if (g_state.access_code.empty()) {
-        Logger::crit("Нет access_code. Завершение.");
-        curl_global_cleanup();
+        agent.run();
+        return 0;
+        
+    } catch (const std::exception& e) {
+        std::cerr << "Fatal error: " << e.what() << std::endl;
         return 1;
     }
-
-    polling_loop();
-
-    curl_global_cleanup();
-    Logger::info("=== WebAgent завершил работу ===");
-    return 0;
 }
