@@ -1,1 +1,0 @@
-/usr/bin/c++ CMakeFiles/WebAgent.dir/src/main.cpp.o CMakeFiles/WebAgent.dir/src/polling.cpp.o CMakeFiles/WebAgent.dir/src/result_sender.cpp.o -o WebAgent  /usr/lib/x86_64-linux-gnu/libcurl.so 

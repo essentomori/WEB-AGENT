@@ -1,3 +1,0 @@
-/home/smi/my_projects_for_labs 2/WEB-AGENT-main/build/CMakeFiles/WebAgent.dir
-/home/smi/my_projects_for_labs 2/WEB-AGENT-main/build/CMakeFiles/edit_cache.dir
-/home/smi/my_projects_for_labs 2/WEB-AGENT-main/build/CMakeFiles/rebuild_cache.dir
