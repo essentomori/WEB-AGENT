@@ -1,0 +1,80 @@
+name: Build and Release
+
+on:
+  push:
+    tags: [ 'v*' ]
+
+jobs:
+  build-linux:
+    runs-on: ubuntu-20.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install deps
+        run: sudo apt-get update && sudo apt-get install -y libcurl4-openssl-dev cmake
+      - run: cmake -B build -DCMAKE_BUILD_TYPE=Release
+      - run: cmake --build build --config Release
+      - name: Package
+        run: |
+          mkdir -p release/linux
+          cp build/WebAgent release/linux/
+          cp assets/config.json release/linux/
+          tar -czf webagent-linux-x64.tar.gz -C release/linux .
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux-binaries
+          path: webagent-linux-x64.tar.gz
+
+  build-windows:
+    runs-on: windows-2022
+    strategy:
+      matrix:
+        arch: [x64, x86]
+        include:
+          - arch: x64
+            triplet: x64-windows-static
+          - arch: x86
+            triplet: x86-windows-static
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup vcpkg
+        run: |
+          git clone https://github.com/microsoft/vcpkg.git ${{ github.workspace }}/vcpkg
+          ${{ github.workspace }}/vcpkg/bootstrap-vcpkg.bat
+          echo "VCPKG_ROOT=${{ github.workspace }}/vcpkg" | Out-File -FilePath $env:GITHUB_ENV -Append
+          echo "CMAKE_TOOLCHAIN_FILE=${{ github.workspace }}/vcpkg/scripts/buildsystems/vcpkg.cmake" | Out-File -FilePath $env:GITHUB_ENV -Append
+      - name: Install curl
+        run: ${{ github.workspace }}/vcpkg/vcpkg install curl:${{ matrix.triplet }}
+      - name: Configure
+        run: cmake -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_TOOLCHAIN_FILE="$env:CMAKE_TOOLCHAIN_FILE" -DVCPKG_TARGET_TRIPLET=${{ matrix.triplet }}
+      - name: Build
+        run: cmake --build build --config Release
+      - name: Package
+        run: |
+          mkdir release\windows-${{ matrix.arch }}
+          copy build\Release\WebAgent.exe release\windows-${{ matrix.arch }}\
+          copy assets\config.json release\windows-${{ matrix.arch }}\
+          Compress-Archive -Path release\windows-${{ matrix.arch }}\* -DestinationPath webagent-windows-${{ matrix.arch }}.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-${{ matrix.arch }}-binaries
+          path: webagent-windows-${{ matrix.arch }}.zip
+
+  create-release:
+    needs: [build-linux, build-windows]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+      - name: Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: |
+            linux-binaries/webagent-linux-x64.tar.gz
+            windows-x64-binaries/webagent-windows-x64.zip
+            windows-x86-binaries/webagent-windows-x86.zip
+          body: |
+            Automated build of ${{ github.ref_name }}.
+            Linux (x64), Windows (x86/x64) binaries are attached.
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
