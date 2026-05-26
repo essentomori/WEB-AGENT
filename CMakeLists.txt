@@ -24,6 +24,18 @@ add_executable(${PROJECT_NAME} ${SOURCES})
 # 5. Линковка библиотек (подключаем CURL к нашему агенту)
 target_link_libraries(${PROJECT_NAME} PRIVATE CURL::libcurl)
 
+# 6. Настройки для Windows
+if(WIN32)
+    # Минимальная версия Windows API — Windows 7 (0x0601)
+    target_compile_definitions(${PROJECT_NAME} PRIVATE _WIN32_WINNT=0x0601)
+    # Отключаем предупреждения MSVC об устаревших POSIX-именах (localtime и др.)
+    if(MSVC)
+        target_compile_definitions(${PROJECT_NAME} PRIVATE _CRT_SECURE_NO_WARNINGS)
+    endif()
+    # Дополнительные библиотеки Windows, необходимые libcurl
+    target_link_libraries(${PROJECT_NAME} PRIVATE ws2_32 wldap32 crypt32)
+endif()
+
 # 6. (Опционально) Копируем config.json в папку со сборкой, чтобы он был под рукой
 configure_file(assets/config.json ${CMAKE_BINARY_DIR}/config.json COPYONLY)
 
