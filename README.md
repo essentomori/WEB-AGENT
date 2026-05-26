@@ -1,307 +1,295 @@
 # WebAgent
 
-Агент удалённого управления на C++17. Подключается к серверу, получает задания и возвращает результат. Архитектура аналогична системам класса RMM (Remote Monitoring & Management).
+Лёгкий фоновый агент на C++17, который подключается к удалённому серверу, опрашивает очередь задач, выполняет их локально и возвращает результаты — всё по HTTPS с поддержкой загрузки файлов.
 
-**Сервер:** `https://xdev.arkcom.ru:9999`
+[![C++17](https://img.shields.io/badge/C%2B%2B-17-blue.svg)](https://en.cppreference.com/w/cpp/17)
+[![CMake](https://img.shields.io/badge/build-CMake%203.10%2B-brightgreen.svg)](https://cmake.org/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 ---
 
 ## Содержание
 
-- [Быстрый старт](#быстрый-старт)
-- [Архитектура](#архитектура)
-- [Структура проекта](#структура-проекта)
+- [Обзор](#обзор)
+- [Возможности](#возможности)
+- [Требования](#требования)
+- [Сборка](#сборка)
+  - [Linux / macOS](#linux--macos)
+  - [Windows (MSVC)](#windows-msvc)
+  - [Windows (MinGW)](#windows-mingw)
 - [Конфигурация](#конфигурация)
-- [API](#api)
-- [Ветки и процесс разработки](#ветки-и-процесс-разработки)
-- [Команда](#команда)
+  - [Поля config.json](#поля-configjson)
+  - [Переменные окружения](#переменные-окружения)
+- [Запуск](#запуск)
+- [Типы задач](#типы-задач)
+- [Формат логов](#формат-логов)
+- [Структура проекта](#структура-проекта)
+- [Решение проблем](#решение-проблем)
 
 ---
 
-## Быстрый старт
+## Обзор
 
-**Требования:** Linux / WSL Ubuntu 20.04+, GCC 11+, CMake 3.16+
+WebAgent регистрируется на сервере по уникальному UID, после чего входит в бесконечный цикл опроса. Когда сервер добавляет задачу в очередь для этого агента, агент забирает её, обрабатывает в воркер-потоке и отправляет результат обратно — включая опциональные файловые вложения.
+
+```
+┌───────────┐   POST /wa_reg/    ┌────────────┐
+│           │ ────────────────►  │            │
+│   Агент   │   POST /wa_task/   │   Сервер   │
+│           │ ◄──────────────►   │            │
+│           │   POST /wa_result/ │            │
+│           │ ────────────────►  │            │
+└───────────┘                    └────────────┘
+```
+
+---
+
+## Возможности
+
+| Функция | Описание |
+|---|---|
+| **Пул потоков** | 4 воркера по умолчанию (настраивается через `AGENT_WORKERS`). Задачи выполняются параллельно, не блокируя цикл опроса. |
+| **Адаптивный backoff** | При сетевых ошибках интервал опроса удваивается до `backoff_max_sec`. После восстановления связи мгновенно возвращается к норме. |
+| **Структурированные логи** | Каждая строка лога содержит временну́ю метку (точность мс), ID потока, код задачи и ID сессии. |
+| **Runtime-конфигурация** | Все параметры берутся из `config.json` и/или переменных окружения. Никаких захардкоженных значений. |
+| **Корректное завершение** | `SIGINT` / `SIGTERM` дожидаются завершения всех активных задач перед выходом. |
+| **Multipart-загрузка** | Результаты и файловые вложения отправляются как `multipart/form-data` через MIME API libcurl. |
+| **Кроссплатформенность** | Собирается на Linux, macOS и Windows (MSVC / MinGW). |
+
+---
+
+## Требования
+
+| Зависимость | Версия |
+|---|---|
+| Компилятор C++ | GCC 8+, Clang 7+, MSVC 19.14+ |
+| CMake | 3.10+ |
+| libcurl | 7.56+ (MIME API) |
+
+### Установка libcurl
+
+**Ubuntu / Debian**
+```bash
+sudo apt install libcurl4-openssl-dev
+```
+
+**macOS (Homebrew)**
+```bash
+brew install curl
+```
+
+**Windows** — скачайте готовые бинарники с [curl.se/windows](https://curl.se/windows/) или установите через vcpkg:
+```powershell
+vcpkg install curl:x64-windows
+```
+
+---
+
+## Сборка
+
+### Linux / macOS
 
 ```bash
-# 1. Установить зависимости
-sudo apt install build-essential cmake libcurl4-openssl-dev
-
-# 2. Клонировать и собрать
-git clone https://github.com/essentomori/WebAgent-LAB.git
-cd WebAgent-LAB
+git clone https://github.com/yourname/WEB-AGENT.git
+cd WEB-AGENT
 mkdir build && cd build
 cmake ..
-make
-
-# 3. Запустить
-./WebAgent
+make -j$(nproc)
 ```
 
-Ожидаемый вывод:
+Бинарник `WebAgent` появится в папке `build/`.
 
-```
-2026-03-30 23:44:49 [INFO] === WebAgent запускается ===
-2026-03-30 23:44:49 [INFO] Используем hardcoded access_code=e87ccd-...
-2026-03-30 23:44:49 [INFO] Цикл опроса запущен. Интервал: 60 сек.
-2026-03-30 23:44:49 [INFO] Нет заданий (WAIT). Следующий опрос через 60 сек.
-```
-
----
-
-## Архитектура
-
-```mermaid
-flowchart TB
-    subgraph Server["Сервер xdev.arkcom.ru:9999"]
-        direction LR
-        API1["/api/wa_reg/"]
-        API2["/api/wa_task/"]
-        API3["/api/wa_result/"]
-    end
-
-    subgraph Agent["WebAgent (C++17)"]
-        direction TB
-        subgraph Components[" "]
-            direction LR
-            Main["main.cpp<br/><small>• Logger<br/>• Http (libcurl)<br/>• Json<br/>• register_agent()<br/>• main()</small>"]
-            Polling["polling.cpp<br/><small>• request_task()<br/>• execute_task()<br/>• handle_conf()<br/>• handle_file()<br/>• handle_task()<br/>• handle_timeout()</small>"]
-            Sender["result_sender<br/><small>• send_result()<br/>• multipart<br/>• file attach</small>"]
-        end
-        Other["agent.h — общие типы и объявления<br/>config.json — uid, interval"]
-    end
-
-    Server -- "HTTPS" --> Agent
+#### Release-сборка
+```bash
+cmake -DCMAKE_BUILD_TYPE=Release ..
+make -j$(nproc)
 ```
 
-**Поток выполнения:**
+### Windows (MSVC)
 
-```mermaid
-flowchart TD
-    Start([Запуск]) --> Check{Есть HARDCODED_ACCESS_CODE?}
-
-    Check -->|Да| Use[использовать напрямую]
-    Use --> Loop[polling_loop]
-
-    Check -->|Нет| Register[POST /wa_reg/]
-    Register --> Save[сохранить access_code]
-    Save --> Loop
-
-    Loop --> Task[POST /wa_task/]
-    Task --> Response{code_response}
-
-    Response -->|1| Execute[execute_task]
-    Execute --> Send[send_result]
-    Send --> PostResult[POST /wa_result/ multipart]
-    PostResult --> Loop
-
-    Response -->|0| Sleep[sleep N сек.]
-    Sleep --> Loop
-
-    Response -->|-2| ReReg[re-register]
-    ReReg --> Register
+```powershell
+mkdir build && cd build
+cmake .. -DCMAKE_TOOLCHAIN_FILE=C:/vcpkg/scripts/buildsystems/vcpkg.cmake
+cmake --build . --config Release
 ```
 
----
+### Windows (MinGW)
 
-## Структура проекта
-
-```mermaid
-flowchart TD
-    Root["WebAgent-LAB/"]
-
-    Root --> Assets["assets/"]
-    Root --> Include["include/"]
-    Root --> Src["src/"]
-    Root --> CMake["CMakeLists.txt"]
-    Root --> GitIgnore[".gitignore"]
-    Root --> Readme["README.md"]
-
-    Assets --> Config["config.json<br/><small>uid агента, интервал опроса</small>"]
-    Include --> AgentH["agent.h<br/><small>Config, AgentState, Task,<br/>Logger, Http, Json</small>"]
-
-    Src --> Main["main.cpp<br/><small>точка входа, регистрация, утилиты</small>"]
-    Src --> Polling["polling.cpp<br/><small>цикл опроса, обработчики заданий</small>"]
-    Src --> ResultSender["result_sender.cpp<br/><small>отправка результата с файлами</small>"]
+```bash
+mkdir build && cd build
+cmake .. -G "MinGW Makefiles" -DCURL_ROOT="C:/curl"
+mingw32-make
 ```
-
-`config.json` копируется в `build/` автоматически при сборке через CMake.
 
 ---
 
 ## Конфигурация
 
-**`assets/config.json`** — читается при старте:
+При запуске агент читает `assets/config.json` (или путь, переданный первым аргументом командной строки). Переменные окружения имеют наивысший приоритет и перекрывают значения из файла.
 
-```json
+### Поля config.json
+
+```jsonc
 {
-    "uid": "007",
-    "description": "web-agent",
-    "poll_interval_sec": 60
+    "base_url":            "https://your-server:9999/app/webagent1/api",  // обязательно
+    "uid":                 "agent-42",                                     // обязательно
+    "description":         "web-agent",
+    "poll_interval_sec":   60,
+    "backoff_max_sec":     300,
+    "max_reg_retries":     3,
+    "request_timeout_sec": 30,
+    "connect_timeout_sec": 10,
+    "task_dir":            "tasks",
+    "result_dir":          "results",
+    "log_dir":             "logs"
 }
 ```
 
-**`include/agent.h`** — параметры компиляции:
-
-```cpp
-namespace Config {
-    const std::string BASE_URL              = "https://xdev.arkcom.ru:9999/app/webagent1/api";
-    const std::string AGENT_UID             = "007";
-    const std::string AGENT_DESC            = "web-agent";
-    const std::string HARDCODED_ACCESS_CODE = "";   // вставить если агент уже зарегистрирован
-    inline int        POLL_INTERVAL_SEC     = 60;
-    const int         MAX_REG_RETRIES       = 3;
-}
-```
-
-Если `HARDCODED_ACCESS_CODE` не пустой — агент пропускает регистрацию и сразу начинает опрос.
-
-Интервал можно передать аргументом при запуске:
-
-```bash
-./WebAgent 30   # опрашивать каждые 30 секунд
-```
-
----
-
-## API
-
-Базовый URL: `https://xdev.arkcom.ru:9999/app/webagent1/api`
-
----
-
-### POST `/wa_reg/` — регистрация агента
-
-Запрос:
-```json
-{
-    "UID": "007",
-    "descr": "web-agent"
-}
-```
-
-Ответы:
-
-| code_responce | Описание | Дополнительные поля |
-|---|---|---|
-| `0` | Успешная регистрация | `access_code` |
-| `-3` | Агент уже зарегистрирован | `msg` |
-
----
-
-### POST `/wa_task/` — запрос задания
-
-Запрос:
-```json
-{
-    "UID": "007",
-    "descr": "web-agent",
-    "access_code": "e87ccd-3146-0dcc-2aeb-796c4724"
-}
-```
-
-Ответы:
-
-| code_responce | Описание | Дополнительные поля |
-|---|---|---|
-| `1` | Задание есть | `task_code`, `session_id`, `options`, `status: RUN` |
-| `0` | Заданий нет | `status: WAIT` |
-| `-2` | Неверный код доступа | `msg` |
-
-**Типы заданий (`task_code`):**
-
-| task_code | Описание | Что писать в поле options |
-|---|---|---|
-| `CONF` | Изменить параметр в config.json | `{"key":"poll_interval_sec","value":"30"}` |
-| `FILE` | Отправить файл серверу | `{"filename":"config.json"}` |
-| `TASK` | Выполнить команду и вернуть вывод | `{"command":"uname -a"}` |
-| `TIMEOUT` | Изменить интервал опроса | `{"interval":"30"}` |
-
----
-
-### POST `/wa_result/` — отправка результата
-
-Content-Type: `multipart/form-data`
-
-| Поле | Тип | Описание |
-|---|---|---|
-| `result_code` | int | `0` — успех, `< 0` — ошибка |
-| `result` | string (JSON) | `{"UID","access_code","message","files","session_id"}` |
-| `file1` | file | Файл 1 (опционально) |
-| `file2` | file | Файл 2 (опционально) |
-| `file3...` | file | Далее по порядку |
-
-Ответы:
-
-| code_responce | Описание |
-|---|---|
-| `0` | Результат принят |
-| `-3` | Ошибка загрузки файлов |
-
----
-
-## Ветки и процесс разработки
-
-### Структура веток
-
-```mermaid
-flowchart TD
-    Main["main"] --> Dev["dev"]
-
-    Dev --> Kovalev["Kovalev<br/>@essentomori"]
-    Dev --> Gomonov["Gomonov<br/>@ItQ0n"]
-    Dev --> Smirnov["Smirnov<br/>@t9tu0"]
-    Dev --> Pugovkin["Pugovkin<br/>@miroslav_pug"]
-    Dev --> Naumov["Naumov<br/>@XXI_Primarch"]
-
-    Kovalev --> KRole["👑 lead<br/>main.cpp, agent.h"]
-    Gomonov --> GRole["💻 main.cpp, agent.h"]
-    Smirnov --> SRole["⚙️ polling.cpp"]
-    Pugovkin --> PRole["📤 result_sender.cpp"]
-    Naumov --> NRole["📚 docs, tests"]
-```
-
-### Правила
-
-- **`main`** — только рабочий код. Прямые коммиты запрещены. Слияние через PR из `dev`, требует апрув от lead.
-- **`dev`** — интеграционная. Сюда идут все PR с feature-веток. Должна собираться без ошибок.
-- **Личные ветки** — каждый работает в своей ветке и открывает PR в `dev`.
-
-### Процесс работы
-
-```bash
-# Начало задачи — обновить ветку от dev
-git checkout Smirnov
-git pull origin dev
-
-# Работа, коммиты
-git add src/polling.cpp
-git commit -m "feat: добавлен обработчик TASK"
-git push origin Smirnov
-
-# Открыть PR: Smirnov → dev на GitHub
-```
-
-### Рекомендации по организации для команды 7 человек
-
-**Lead (@essentomori)** — владеет `main`. Только он делает финальный merge из `dev` в `main`. Ревьюит все PR перед слиянием в `dev`.
-
-**Архитектор (@KrlKot)** — не ведёт постоянную ветку. Создаёт ветки вида `arch/description` для архитектурных изменений (правки `agent.h`, структуры модулей). PR такой ветки требует отдельного обсуждения перед слиянием.
-
-**Разработчики** (@ItQ0n, @t9tu0, @miroslav_pug) — работают в своих ветках. Один разработчик = одна ветка = один модуль. Коммиты небольшие и атомарные. Перед PR — `git pull origin dev` чтобы не было конфликтов.
-
-**Тестировщик (@XXI_Primarch)** — тестирует на ветке `dev`. Если находит баг — открывает Issue на GitHub, назначает на ответственного разработчика. Не вносит правки в чужие модули.
-
-**Техпис (@XXI_Primarch)** — ведёт ветку `Naumov`. Документация обновляется синхронно с кодом: если разработчик добавил новый `task_code` — техпис сразу обновляет README и API.md в том же спринте.
-
----
-
-## Команда
-
-| Участник | Ветка | Роль | Зона ответственности |
+| Поле | Тип | По умолчанию | Описание |
 |---|---|---|---|
-| @essentomori | `Kovalev` | Team Lead | Архитектура, ревью, `main` |
-| @ItQ0n | `Gomonov` | Разработчик | `main.cpp`, `agent.h` |
-| @t9tu0 | `Smirnov` | Разработчик | `polling.cpp` |
-| @miroslav_pug | `Pugovkin` | Разработчик | `result_sender.cpp` |
-| @KrlKot | `arch/*` | Архитектор | Проектирование модулей |
-| @XXI_Primarch | `Naumov` | Техпис + Тестировщик | Документация, тесты |
+| `base_url` | string | — | **Обязательно.** Корневой URL серверного API. |
+| `uid` | string | — | **Обязательно.** Уникальный идентификатор агента. |
+| `description` | string | `"web-agent"` | Метка, отправляемая в каждом запросе. |
+| `poll_interval_sec` | int | `60` | Нормальный интервал опроса в секундах. |
+| `backoff_max_sec` | int | `300` | Верхняя граница интервала при адаптивном backoff. |
+| `max_reg_retries` | int | `3` | Максимальное число попыток регистрации. |
+| `request_timeout_sec` | long | `30` | Таймаут передачи libcurl (`CURLOPT_TIMEOUT`). |
+| `connect_timeout_sec` | long | `10` | Таймаут подключения libcurl (`CURLOPT_CONNECTTIMEOUT`). |
+| `task_dir` | string | `"tasks"` | Зарезервировано для локального хранения задач. |
+| `result_dir` | string | `"results"` | Зарезервировано для локального кэша результатов. |
+| `log_dir` | string | `"logs"` | Каталог для лог-файлов (при включённой записи в файл). |
+
+> **Примечание:** поле `access_code` записывается в `config.json` автоматически после успешной регистрации. Не задавайте его вручную, если у вас нет заранее выданного токена.
+
+### Переменные окружения
+
+Переменные, установленные в оболочке, перекрывают соответствующие поля `config.json`.
+
+| Переменная | Перекрывает |
+|---|---|
+| `AGENT_BASE_URL` | `base_url` |
+| `AGENT_UID` | `uid` |
+| `AGENT_POLL_INTERVAL` | `poll_interval_sec` |
+| `AGENT_WORKERS` | Размер пула потоков (по умолчанию `4`) |
+
+---
+
+## Запуск
+
+```bash
+# Путь к конфигу по умолчанию (assets/config.json относительно CWD)
+./WebAgent
+
+# Явный путь к конфигу
+./WebAgent /etc/webagent/config.json
+```
+
+Для корректного завершения нажмите `Ctrl+C` или выполните `kill -TERM <pid>`. Агент дождётся окончания всех активных задач перед выходом.
+
+---
+
+## Типы задач
+
+Сервер может отправить четыре встроенных типа задач. Агент выбирает нужный обработчик по полю `task_code`.
+
+### `CONF` — Изменить параметр конфигурации
+
+Записывает пару ключ-значение в `config.json`. Если изменяется `poll_interval_sec`, изменение вступает в силу немедленно без перезапуска.
+
+**Поле options:**
+```json
+{"key": "poll_interval_sec", "value": "30"}
+```
+
+### `FILE` — Загрузить файл на сервер
+
+Читает локальный файл и отправляет его как multipart-вложение.
+
+**Поле options:**
+```json
+{"filename": "assets/config.json"}
+```
+
+Если `filename` не указан или равен `"config.json"`, используется активный файл конфигурации.
+
+### `TASK` — Выполнить команду оболочки
+
+Запускает произвольную команду оболочки и возвращает stdout (с усечением до 2000 символов).
+
+**Поле options:**
+```json
+{"command": "uname -a"}
+```
+
+### `TIMEOUT` — Изменить интервал опроса
+
+Обновляет `poll_interval_sec` в памяти немедленно. Эквивалентно отправке задачи `CONF` для этого ключа, но без записи на диск.
+
+**Поле options:**
+```json
+{"interval": "15"}
+```
+
+---
+
+## Формат логов
+
+Каждая строка имеет следующий формат:
+
+```
+2024-05-18 14:32:01.247 [INFO   ] [T:3a1f] [task=TASK] [session=39493...] [TASK] exec: uname -a
+```
+
+| Поле | Описание |
+|---|---|
+| `2024-05-18 14:32:01.247` | Временна́я метка с точностью до миллисекунд |
+| `[INFO   ]` | Уровень лога: `DEBUG`, `INFO   `, `WARNING`, `ERROR  `, `CRIT   ` |
+| `[T:3a1f]` | Короткий ID потока (4 hex-символа) |
+| `[task=TASK]` | Код задачи (отсутствует в не связанных с задачей сообщениях) |
+| `[session=…]` | ID сессии (отсутствует в не связанных с задачей сообщениях) |
+
+---
+
+## Структура проекта
+
+```
+WEB-AGENT/
+├── assets/
+│   └── config.json          # Конфигурация времени выполнения
+├── include/
+│   ├── agent.h              # Все типы, пространства имён и объявления публичного API
+│   └── thread_pool.h        # SafeQueue<T> + ThreadPool (header-only)
+├── src/
+│   ├── main.cpp             # Точка входа: обработчики сигналов, инициализация curl, запуск
+│   ├── polling.cpp          # Загрузчик конфига, реализация Logger, обработчики задач, цикл опроса
+│   └── result_sender.cpp    # send_result() через libcurl MIME multipart
+└── CMakeLists.txt
+```
+
+---
+
+## Решение проблем
+
+**`Config file missing or empty`**
+Агент не может найти `config.json`. Убедитесь, что бинарник запускается из корня проекта, или укажите путь к конфигу явно:
+```bash
+./WebAgent /absolute/path/to/config.json
+```
+
+**`Config validation: base_url is required`**
+В конфиге отсутствует `base_url`. Добавьте его или задайте переменную окружения `AGENT_BASE_URL`.
+
+**`Registration ok but access_code absent`**
+Сервер вернул HTTP 200 с `code_response: 0`, но без `access_code`. Проверьте серверные логи.
+
+**`No saved access_code found after -3`**
+Сервер сообщает, что агент уже зарегистрирован (`code_response: -3`), но в `config.json` нет `access_code`. Удалите запись об агенте на стороне сервера и дайте агенту зарегистрироваться заново, или добавьте правильный код в `config.json` вручную.
+
+**`curl error: SSL certificate problem`**
+Сервер использует самоподписанный сертификат. Агент в данный момент отключает проверку сертификата (`CURLOPT_SSL_VERIFYPEER = 0`). Для production-окружения укажите CA bundle в настройках curl в `main.cpp`.
+
+**Агент сразу завершает работу после запуска**
+Проверьте stderr на наличие сообщений `[CRIT]`. Чаще всего причина — отсутствующий или некорректный `config.json`.
+
+**Задачи накапливаются в очереди, но не выполняются**
+Увеличьте количество воркеров: задайте `export AGENT_WORKERS=8` перед запуском агента.
