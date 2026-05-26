@@ -90,7 +90,7 @@ vcpkg install curl:x64-windows
 ### Linux / macOS
 
 ```bash
-git clone https://github.com/yourname/WEB-AGENT.git](https://github.com/essentomori/WEB-AGENT
+git clone https://github.com/essentomori/WEB-AGENT
 cd WEB-AGENT
 mkdir build && cd build
 cmake ..
