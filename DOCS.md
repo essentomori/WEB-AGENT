@@ -156,7 +156,7 @@ AGENT_POLL_INTERVAL  → Config::POLL_INTERVAL_SEC
 **Пример `config.json`:**
 ```json
 {
-    "base_url": "https://example.com:9999/app/webagent1/api",
+    "base_url": "https://xdev.arkcom.ru:9999/app/webagent1/",
     "uid": "agent-01",
     "poll_interval_sec": 30
 }
